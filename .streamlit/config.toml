@@ -1,0 +1,17 @@
+[theme]
+base = "dark"
+
+# Cor de fundo principal
+backgroundColor = "#070a26"
+
+# Cor de fundo para widgets como a barra lateral, expanders, etc.
+secondaryBackgroundColor = "#1f0d47"
+
+# Cor primária para elementos interativos
+primaryColor = "#22c912"
+
+# Cor do texto principal
+textColor = "#ffffff"
+
+# Fonte principal (tem que bater com o "family" definido em fontFaces)
+font = "arial"
