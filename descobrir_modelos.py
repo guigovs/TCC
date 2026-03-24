@@ -1,9 +1,8 @@
+import streamlit as st
 from google import genai
 
-CHAVE_API = "AIzaSyAFV2OtDepbsXBMihO1aeuT7uIkRIhTn_8"
-
 try:
-    client = genai.Client(api_key=CHAVE_API)
+    client = genai.Client(api_key=st.secrets["GEMINI_CHAVE"])
     print("Buscando modelos liberados para a sua chave...\n")
     
     # Busca a lista de modelos usando a sintaxe da biblioteca nova
