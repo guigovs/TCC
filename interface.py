@@ -2708,7 +2708,10 @@ with tab_chatbot:
                 return f"Nenhum {coluna_agrupamento} atingiu o critério de {min_minutos} minutos jogados."
 
             # Ordena do maior pro menor (ou vice-versa) e pega os top_n resultados
-            df_ordenado = df_agg.sort_values(by=metrica, ascending=crescente).head(top_n)
+            df_ordenado = df_agg.sort_values(
+                by=[metrica, 'Minutos Jogados'], 
+                ascending=[crescente, True]
+            ).head(top_n)
             
             # Retorna a tabela limpa para a IA ler
             return df_ordenado[[coluna_agrupamento, metrica, 'Minutos Jogados']].to_string(index=False)
@@ -2755,8 +2758,8 @@ with tab_chatbot:
         - Mantenha o contexto: se o usuário fizer uma pergunta curta ("E o Vini Jr?"), aplique a mesma métrica da pergunta anterior a este novo jogador.
         
         FILTROS AVANÇADOS:
-        - Temporadas: "em 2023", "ano passado".
-        - Competições: "na La Liga", "na Champions".
+        - Temporadas: "em 2023/2024", "em 2024/2025".
+        - Competições: "na La Liga", "na Premier League".
         - Posições: "entre os atacantes", "zagueiros".
         - Minutagem: "com mais de 1000 minutos" (use `min_minutos` na ferramenta).
 
@@ -2764,7 +2767,8 @@ with tab_chatbot:
         - Você NÃO consegue plotar gráficos. Explique isso educadamente e RECOMENDE que o usuário utilize as abas "Análises Individuais" ou "Rankings Globais" no topo do painel.
         
         FORMATAÇÃO DA RESPOSTA FINAL:
-        - Sempre formate rankings e comparações utilizando Tabelas Markdown para facilitar a leitura.
+        - Apresente rankings e comparações em formato de texto ou lista em tópicos (bullet points). 
+        - Nunca utilize tabelas Markdown.
         - Destaque o nome dos jogadores e times em **negrito**.
         - Não explique ao usuário qual ferramenta você usou ou o passo a passo lógico. Entregue apenas a resposta analítica.
         """
