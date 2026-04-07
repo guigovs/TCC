@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
+import re
 import plotly.express as px
 import plotly.graph_objects as go
 from google import genai
@@ -2623,99 +2624,177 @@ with tab_chatbot:
     # 1. TOOLS
     # ==========================================
 
-    def buscar_informacao_direta(coluna_busca: str, termo_busca: str, colunas_retorno: list[str], temporadas: list[str] = None, competicoes: list[str] = None, posicoes: list[str] = None) -> str:
+    def filtrar_contexto(df, temporadas=None, competicoes=None, posicoes=None):
+        """
+        Centraliza os filtros repetidos de temporada, competição e posição.
+        """
+        df_alvo = df.copy()
+
+        if temporadas:
+            df_alvo = df_alvo[df_alvo['Temporada'].isin(temporadas)]
+
+        if competicoes:
+            df_alvo = df_alvo[df_alvo['Competição'].isin(competicoes)]
+
+        if posicoes:
+            padrao_posicoes = '|'.join(re.escape(p) for p in posicoes)
+            df_alvo = df_alvo[
+                df_alvo['Posição'].astype(str).str.contains(
+                    padrao_posicoes,
+                    case=False,
+                    na=False,
+                    regex=True
+                )
+            ]
+
+        return df_alvo
+
+    def buscar_informacao_direta(
+        coluna_busca: str,
+        termo_busca: str,
+        colunas_retorno: list[str],
+        temporadas: list[str] = None,
+        competicoes: list[str] = None,
+        posicoes: list[str] = None
+    ) -> str:
         """
         Usa para buscar informações exatas sobre um jogador, time ou competição.
         Exemplo: Onde o 'Vini Jr' joga na temporada 2023?
         """
         try:
-            df_alvo = meu_dataframe.copy()
-            
-            # Aplica filtros de contexto apenas se o usuário pedir (temporada, campeonato, posição)
-            if temporadas: df_alvo = df_alvo[df_alvo['Temporada'].isin(temporadas)]
-            if competicoes: df_alvo = df_alvo[df_alvo['Competição'].isin(competicoes)]
-            if posicoes: df_alvo = df_alvo[df_alvo['Posição'].str.contains('|'.join(posicoes), case=False, na=False, regex=True)]
+            df_alvo = filtrar_contexto(
+                meu_dataframe,
+                temporadas=temporadas,
+                competicoes=competicoes,
+                posicoes=posicoes
+            )
 
-            # Procura o termo ignorando letras maiúsculas/minúsculas
-            mascara = df_alvo[coluna_busca].astype(str).str.contains(termo_busca, case=False, na=False)
-            resultado = df_alvo[mascara][colunas_retorno].drop_duplicates()
-            
-            # Retorna o dado ou avisa que não encontrou
+            # Busca textual literal, sem interpretar regex digitada pelo usuário
+            mascara = df_alvo[coluna_busca].astype(str).str.contains(
+                termo_busca,
+                case=False,
+                na=False,
+                regex=False
+            )
+
+            resultado = df_alvo.loc[mascara, colunas_retorno].drop_duplicates()
+
             if resultado.empty:
                 return f"Nenhum dado encontrado para '{termo_busca}' na coluna '{coluna_busca}' com os filtros aplicados."
-            return resultado.to_string(index=False)
-        except Exception as e:
-            return f"Erro na busca: verifique se as colunas informadas existem na base de dados."
 
-    def calcular_estatistica(metrica: str, operacao: str = 'soma', coluna_filtro: str = None, termo_filtro: str = None, temporadas: list[str] = None, competicoes: list[str] = None, posicoes: list[str] = None) -> str:
+            return resultado.to_string(index=False)
+
+        except Exception:
+            return "Erro na busca: verifique se as colunas informadas existem na base de dados."
+
+    def calcular_estatistica(
+        metrica: str,
+        operacao: str = 'soma',
+        coluna_filtro: str = None,
+        termo_filtro: str = None,
+        temporadas: list[str] = None,
+        competicoes: list[str] = None,
+        posicoes: list[str] = None
+    ) -> str:
         """
         Usa para calcular totais (soma) ou médias numéricas (media) de um grupo ou jogador.
         Exemplo: Média de idade do Real Madrid na La Liga.
         """
         try:
-            df_alvo = meu_dataframe.copy()
-            
-            # Aplica filtros de contexto (temporada, campeonato, posição)
-            if temporadas: df_alvo = df_alvo[df_alvo['Temporada'].isin(temporadas)]
-            if competicoes: df_alvo = df_alvo[df_alvo['Competição'].isin(competicoes)]
-            if posicoes: df_alvo = df_alvo[df_alvo['Posição'].str.contains('|'.join(posicoes), case=False, na=False, regex=True)]
-            
+            df_alvo = filtrar_contexto(
+                meu_dataframe,
+                temporadas=temporadas,
+                competicoes=competicoes,
+                posicoes=posicoes
+            )
+
             # Filtra por um jogador ou time específico, se necessário
             if coluna_filtro and termo_filtro:
-                df_alvo = df_alvo[df_alvo[coluna_filtro].astype(str).str.contains(termo_filtro, case=False, na=False)]
-            
+                df_alvo = df_alvo[
+                    df_alvo[coluna_filtro].astype(str).str.contains(
+                        termo_filtro,
+                        case=False,
+                        na=False,
+                        regex=False
+                    )
+                ]
+
             if df_alvo.empty:
                 return f"Não encontrei dados para calcular após buscar '{termo_filtro}' em '{coluna_filtro}'."
 
             # Executa a operação matemática escolhida pela IA
-            if operacao == 'soma': valor = df_alvo[metrica].sum()
-            elif operacao == 'media': valor = df_alvo[metrica].mean()
-            elif operacao == 'maximo': valor = df_alvo[metrica].max()
-            else: valor = df_alvo[metrica].min() 
-                
+            if operacao == 'soma':
+                valor = df_alvo[metrica].sum()
+            elif operacao == 'media':
+                valor = df_alvo[metrica].mean()
+            elif operacao == 'maximo':
+                valor = df_alvo[metrica].max()
+            elif operacao == 'minimo':
+                valor = df_alvo[metrica].min()
+            else:
+                return f"Operação inválida: '{operacao}'."
+
             return f"O resultado da operação '{operacao}' na métrica '{metrica}' é {valor:.2f}"
-        except Exception as e:
+
+        except Exception:
             return f"Erro ao calcular. Verifique se a métrica '{metrica}' é uma coluna numérica válida."
 
-    def criar_ranking(coluna_agrupamento: str, metrica: str, operacao: str = 'soma', top_n: int = 5, crescente: bool = False, temporadas: list[str] = None, competicoes: list[str] = None,
-                      posicoes: list[str] = None, min_minutos: int = 0) -> str:
+    def criar_ranking(
+        coluna_agrupamento: str,
+        metrica: str,
+        operacao: str = 'soma',
+        top_n: int = 5,
+        crescente: bool = False,
+        temporadas: list[str] = None,
+        competicoes: list[str] = None,
+        posicoes: list[str] = None,
+        min_minutos: int = 0
+    ) -> str:
         """
         Usa para responder perguntas comparativas como "Quem tem mais", "Qual o pior", "Top 5".
-        Aceita filtros de temporada, competicao, posicao e um filtro de corte de "min_minutos" jogados.
+        Aceita filtros de temporada, competição, posição e um filtro de corte de "min_minutos" jogados.
         """
         try:
-            df_alvo = meu_dataframe.copy()
-            
-            # Aplica filtros de contexto (temporada, campeonato, posição)
-            if temporadas: df_alvo = df_alvo[df_alvo['Temporada'].isin(temporadas)]
-            if competicoes: df_alvo = df_alvo[df_alvo['Competição'].isin(competicoes)]
-            if posicoes: df_alvo = df_alvo[df_alvo['Posição'].str.contains('|'.join(posicoes), case=False, na=False, regex=True)]
+            df_alvo = filtrar_contexto(
+                meu_dataframe,
+                temporadas=temporadas,
+                competicoes=competicoes,
+                posicoes=posicoes
+            )
 
             if df_alvo.empty:
                 return "Os filtros aplicados não retornaram nenhum dado para gerar o ranking."
 
-            # Agrupa os dados e soma os minutos jogados para validação futura
+            operacao = operacao.strip().lower()
+
+            if operacao not in ['soma', 'media']:
+                return "Operação inválida para ranking. Use apenas 'soma' ou 'media'."
+
             if operacao == 'media':
-                df_agg = df_alvo.groupby(coluna_agrupamento, as_index=False).agg({metrica: 'mean', 'Minutos Jogados': 'sum'})
-            else:
-                df_agg = df_alvo.groupby(coluna_agrupamento, as_index=False).agg({metrica: 'sum', 'Minutos Jogados': 'sum'})
-            
-            # Corta jogadores que não atingiram a minutagem mínima exigida
+                df_agg = df_alvo.groupby(coluna_agrupamento, as_index=False).agg({
+                    metrica: 'mean',
+                    'Minutos Jogados': 'sum'
+                })
+            else:  # operacao == 'soma'
+                df_agg = df_alvo.groupby(coluna_agrupamento, as_index=False).agg({
+                    metrica: 'sum',
+                    'Minutos Jogados': 'sum'
+                })
+
             if min_minutos > 0:
                 df_agg = df_agg[df_agg['Minutos Jogados'] >= min_minutos]
-                
+
             if df_agg.empty:
                 return f"Nenhum {coluna_agrupamento} atingiu o critério de {min_minutos} minutos jogados."
 
-            # Ordena do maior pro menor (ou vice-versa) e pega os top_n resultados
+            # Mantido exatamente como está hoje no seu critério de ordenação
             df_ordenado = df_agg.sort_values(
-                by=[metrica, 'Minutos Jogados'], 
+                by=[metrica, 'Minutos Jogados'],
                 ascending=[crescente, True]
             ).head(top_n)
-            
-            # Retorna a tabela limpa para a IA ler
+
             return df_ordenado[[coluna_agrupamento, metrica, 'Minutos Jogados']].to_string(index=False)
-            
+
         except Exception as e:
             return f"Erro ao gerar ranking. Detalhe: {e}"
 
@@ -2725,65 +2804,268 @@ with tab_chatbot:
     # ==========================================
     # 2. INTERFACE E CONFIGURAÇÃO DO CHAT
     # ==========================================
-    
+
     # Cria a memória do chat se ela não existir
     if "messages" not in st.session_state:
         st.session_state.messages = []
-    
+
+    # Botão para reiniciar a sessão do chatbot
+    if st.button("Nova conversa", key="reset_chatbot_futestat"):
+        st.session_state.pop("chat_session", None)
+        st.session_state.messages = []
+        st.rerun()
+
     # Inicializa a IA na primeira execução
     if "chat_session" not in st.session_state and CLIENT is not None:
-        # Pega as colunas do CSV para a IA saber o que pode pesquisar
+        metricas_participacao_ref = [
+            'Partidas',
+            'Partidas como Titular',
+            'Partidas como Substituto',
+            'Minutos Jogados',
+            'Minutos Jogados / Partidas',
+            'Minutos / Partidas como Titular',
+            'Percentual de Minutos Jogados na Temporada'
+        ]
+
+        metricas_ofensivas_ref = [
+            'Gols',
+            'Gols Esperados',
+            'Gols com Bola Rolando',
+            'Gols / 90',
+            'Gols+Assistências / 90',
+            'Finalizações',
+            'Finalizações no Gol',
+            'Finalizações / 90',
+            'Finalizações no Gol / 90',
+            'Percentual de Finalizações no Gol',
+            'Gols / Finalização',
+            'Gols / Finalização no Gol',
+            'Toques na Bola na Grande Área Ofensiva'
+        ]
+
+        metricas_criacao_ref = [
+            'Assistências',
+            'Assistências Esperadas',
+            'Assistências / 90',
+            'Passes Chave',
+            'Passes Progressivos Efetuados',
+            'Passes Progressivos Recebidos',
+            'Ações que Resultaram em Finalização',
+            'Ações que Resultaram em Gol',
+            'Cruzamentos',
+            'Passes Completos no Terço Final do Campo',
+            'Conduções Progressivas',
+            'Entradas na Grande Área Adversária por Condução de Bola'
+        ]
+
+        metricas_defensivas_ref = [
+            'Desarmes',
+            'Interceptações',
+            'Desarmes + Interceptações',
+            'Bolas Recuperadas',
+            'Bloqueios',
+            'Faltas Cometidas',
+            'Cartões Amarelos',
+            'Cartões Vermelhos',
+            'Percentual de Sucesso em Desarmes em Dribles Adversários',
+            'Percentual de Disputas Aéreas Vencidas',
+            'Erros que Resultaram em Finalizações Adversárias'
+        ]
+
+        metricas_impacto_ref = [
+            'Média de Pontos Ganhos pela Equipe em Jogos Participados pelo Jogador',
+            'Saldo de Gols com o Jogador em Campo',
+            'Saldo de Gols com o Jogador em Campo / 90',
+            'Saldo de Gols por 90 Minutos com o Jogador em Campo - Saldo de Gols por 90 Minutos sem o Jogador em Campo',
+            'Saldo de Gols Esperados da Equipe com o Jogador em Campo',
+            'Saldo de Gols Esperados da Equipe com o Jogador em Campo / 90',
+            'Saldo de Gols Esperados por 90 Minutos com o Jogador em Campo - Saldo de Gols Esperados por 90 Minutos sem o Jogador em Campo',
+            'Gols Marcados pela Equipe com o Jogador em Campo'
+        ]
+
+        metricas_participacao_txt = ", ".join([f"'{m}'" for m in metricas_participacao_ref if m in meu_dataframe.columns])
+        metricas_ofensivas_txt = ", ".join([f"'{m}'" for m in metricas_ofensivas_ref if m in meu_dataframe.columns])
+        metricas_criacao_txt = ", ".join([f"'{m}'" for m in metricas_criacao_ref if m in meu_dataframe.columns])
+        metricas_defensivas_txt = ", ".join([f"'{m}'" for m in metricas_defensivas_ref if m in meu_dataframe.columns])
+        metricas_impacto_txt = ", ".join([f"'{m}'" for m in metricas_impacto_ref if m in meu_dataframe.columns])
+
+        # Definido uma única vez
         colunas_disponiveis = ", ".join([f"'{col}'" for col in meu_dataframe.columns])
-        
-        # Regras de comportamento e personalidade do bot
+
         instrucao = f"""
         Você é um assistente de inteligência de dados de futebol.
-        Você DEVE USAR as ferramentas fornecidas para consultar a base de dados. Nunca invente dados.
-        
-        As colunas disponíveis na base são exatamente estas: {colunas_disponiveis}.
-        
-        Sua lógica de decisão:
-        1. O usuário quer saber uma característica (time, posição, nacionalidade)? Use `buscar_informacao_direta`.
-        2. O usuário quer saber a soma, média, máximo ou mínimo de uma métrica para um jogador/time? Use `calcular_estatistica`.
-        3. O usuário pediu um ranking, comparação ou "quem tem mais"? Use `criar_ranking`.
-        
-        TRADUÇÃO DE JARGÕES E SINÔNIMOS:
-        - "chutes", "finaliza", "bate pro gol" -> Mapeie para a coluna 'Finalizações' ou 'Finalizações no Gol'.
-        - "passes decisivos", "criação", "deixa na cara do gol" -> Mapeie para 'Passes Chave' ou 'Assistências'.
-        - "roubadas de bola", "marcação" -> Mapeie para 'Desarmes' ou 'Bolas Recuperadas'.
-        - "jogos", "partidas jogadas" -> Mapeie para 'Partidas'.
-        
-        REGRAS PARA PERGUNTAS SUBJETIVAS E INCOMPLETAS:
-        - Se perguntarem "Quem é o melhor jogador?", explique que a resposta depende da métrica e sugira algumas (ex: Gols, Assistências, Média de Pontos). Não dê opiniões pessoais.
-        - Mantenha o contexto: se o usuário fizer uma pergunta curta ("E o Vini Jr?"), aplique a mesma métrica da pergunta anterior a este novo jogador.
-        
-        FILTROS AVANÇADOS:
-        - Temporadas: "em 2023/2024", "em 2024/2025".
-        - Competições: "na La Liga", "na Premier League".
-        - Posições: "entre os atacantes", "zagueiros".
-        - Minutagem: "com mais de 1000 minutos" (use `min_minutos` na ferramenta).
+
+        REGRAS PRINCIPAIS:
+        - Você DEVE usar exclusivamente as ferramentas fornecidas para consultar a base.
+        - Nunca invente dados.
+        - Nunca assuma a existência de colunas fora da base.
+        - As colunas disponíveis na base são exatamente estas: {colunas_disponiveis}.
+        - Sua obrigação é responder com precisão, coerência e fidelidade total aos dados.
+        - Quando houver mais de uma interpretação plausível, não improvise silenciosamente.
+
+        FERRAMENTAS DISPONÍVEIS E QUANDO USAR:
+        1. Use `buscar_informacao_direta` quando o usuário quiser descobrir, identificar ou listar características de um jogador, equipe, competição ou posição.
+        Exemplos:
+        - "Qual a nacionalidade do Rodrygo?"
+        - "Em que equipe joga o Kane?"
+        - "Qual a posição do Bellingham?"
+        - "Quais competições o Haaland disputou?"
+
+        2. Use `calcular_estatistica` quando o usuário quiser soma, média, máximo ou mínimo de uma métrica.
+        Exemplos:
+        - "Quantos gols o Haaland fez?"
+        - "Qual a média de assistências do De Bruyne?"
+        - "Qual o máximo de finalizações do Mbappé?"
+        - "Qual o total de desarmes do Rúben Dias?"
+
+        3. Use `criar_ranking` quando o usuário pedir ranking, top N, líder, melhores, piores, comparação ampla, "quem tem mais", "quem tem menos" ou equivalentes.
+        Exemplos:
+        - "Top 5 jogadores com mais gols"
+        - "Quem tem mais assistências?"
+        - "Melhores atacantes em gols por 90"
+        - "Quem lidera em passes chave?"
+
+        REGRAS DE AGREGAÇÃO:
+        - Para métricas de volume bruto, contagem acumulada ou produção total, prefira `operacao='soma'`.
+        - Para métricas de taxa, percentual, razão, eficiência, distância média, média geral, por jogo ou por 90 minutos, prefira `operacao='media'`.
+        - Para perguntas sobre maior valor isolado, use `operacao='maximo'`.
+        - Para perguntas sobre menor valor isolado, use `operacao='minimo'`.
+
+        TRATAMENTO DAS MÉTRICAS:
+        - A lógica de agregação deve respeitar o tipo da métrica.
+        - Use como princípio:
+        - métricas de volume -> soma
+        - métricas de taxa, percentual ou eficiência -> média
+        - Nunca trate como equivalentes métricas que não são equivalentes.
+        Exemplos:
+        - 'Assistências' != 'Passes Chave'
+        - 'Gols' != 'Gols / 90'
+        - 'Finalizações' != 'Percentual de Finalizações no Gol'
+        - 'Gols Esperados' != 'Assistências Esperadas'
+
+        GRUPOS DE MÉTRICAS IMPORTANTES DA BASE:
+        - Participação: {metricas_participacao_txt}
+        - Ofensivas: {metricas_ofensivas_txt}
+        - Criação: {metricas_criacao_txt}
+        - Defensivas: {metricas_defensivas_txt}
+        - Impacto coletivo: {metricas_impacto_txt}
+
+        MAPEAMENTO DE JARGÕES E SINÔNIMOS:
+        - "chutes", "finaliza", "bate pro gol" -> 'Finalizações' ou 'Finalizações no Gol'
+        - "chutes por 90", "finalizações por jogo" -> métricas de finalização por 90
+        - "precisão de chute" -> 'Percentual de Finalizações no Gol'
+        - "eficiência de chute", "aproveitamento de finalização" -> razões como 'Gols / Finalização' ou 'Gols / Finalização no Gol'
+
+        - "passes decisivos", "criação", "deixa na cara do gol" -> 'Passes Chave', 'Assistências', 'Assistências Esperadas' ou 'Ações que Resultaram em Finalização'
+        - "xA" -> 'Assistências Esperadas'
+        - "xG" -> 'Gols Esperados'
+        - "passes progressivos" -> 'Passes Progressivos Efetuados'
+        - "recebimento progressivo" -> 'Passes Progressivos Recebidos'
+        - "conduções progressivas" -> 'Conduções Progressivas'
+        - "SCA" -> 'Ações que Resultaram em Finalização'
+        - "GCA" -> 'Ações que Resultaram em Gol'
+        - "terço final" -> métricas que contenham "Terço Final do Campo"
+
+        - "roubadas de bola", "marcação" -> 'Desarmes', 'Interceptações', 'Desarmes + Interceptações' ou 'Bolas Recuperadas'
+        - "jogo aéreo" -> métricas de disputas aéreas
+        - "drible" -> métricas de dribles bem-sucedidos ou de sucesso defensivo em dribles adversários
+
+        - "impacto no time", "impacto coletivo" -> priorize métricas de pontos, saldo de gols, saldo de gols esperados e saldo com/sem o jogador por 90
+        - "participação em gols" -> 'Gols + Assistências' ou métricas relacionadas por 90, dependendo do pedido
+        - "bola rolando" -> priorize colunas que contenham "Bola Rolando"
+        - "jogos", "partidas jogadas" -> 'Partidas'
+        - "minutagem" -> 'Minutos Jogados'
+
+        REGRAS DE INTERPRETAÇÃO:
+        - Se o usuário falar em volume, total ou quantidade acumulada, prefira métricas brutas.
+        - Se o usuário falar em eficiência, aproveitamento, rendimento, impacto proporcional, por jogo ou por 90, prefira métricas relativas.
+        - Se a pergunta for do tipo "quem foi melhor", "quem rende mais", "quem é mais eficiente", não dê opinião pessoal.
+        - Nesses casos, explique que a resposta depende da métrica e sugira opções objetivas adequadas ao contexto.
+
+        REGRAS DE AMBIGUIDADE:
+        - Sempre prefira:
+        1. a interpretação mais literal do pedido do usuário
+        2. a coluna semanticamente mais próxima
+        3. uma resposta breve explicando as opções plausíveis, se a ambiguidade continuar real
+        - Nunca troque silenciosamente uma métrica por outra parecida.
+        - Se nenhuma coluna corresponder bem ao pedido, diga isso claramente.
+
+        REGRAS DE BUSCA FLEXÍVEL:
+        - O usuário pode usar nomes incompletos, apelidos, sobrenomes ou termos informais.
+        - Ao filtrar jogadores, equipes ou competições, prefira correspondência parcial.
+        - Porém, não misture estatísticas de entidades diferentes como se fossem a mesma.
+        - Se um nome parcial puder corresponder a mais de um jogador, evite somar dados de pessoas diferentes sem sinalizar isso.
+        - Se o pedido envolver um nome potencialmente ambíguo, seja cauteloso na interpretação.
+
+        REGRAS DE FILTRO:
+        - Temporadas: aplique quando o usuário disser algo como "em 2023/2024", "na temporada 2024/2025".
+        - Competições: aplique quando o usuário disser algo como "na La Liga", "na Premier League".
+        - Posições: aplique quando o usuário disser algo como "entre atacantes", "zagueiros", "meio-campistas".
+        - Trate posição como correspondência parcial, não como igualdade exata.
+        - Corte de minutagem:
+        - use `min_minutos` apenas em `criar_ranking`
+        - use esse filtro quando o usuário pedir algo como:
+            - "com mais de 1000 minutos"
+            - "considerando só quem jogou bastante"
+            - "desconsiderando amostra pequena"
+        - Não invente corte de minutagem se o usuário não pedir.
+
+        REGRAS DE COMPARAÇÃO JUSTA:
+        - Para eficiência, rendimento e impacto proporcional, prefira métricas relativas.
+        - Para volume de produção, prefira métricas totais.
+        - Evite conclusões fortes com amostra pequena quando a pergunta indicar comparação justa.
+        - Em rankings, se o usuário demonstrar preocupação com justiça amostral, use `min_minutos`.
+
+        REGRAS DE CONTEXTO:
+        - Mantenha o contexto da conversa.
+        - Se o usuário fizer continuação curta, como:
+        - "E o Vini Jr?"
+        - "E na Premier League?"
+        - "E entre os zagueiros?"
+        preserve a métrica, os filtros e o tipo de comparação da pergunta anterior, alterando apenas o novo elemento citado.
+
+        REGRAS DE ESCOPO:
+        - Se o usuário não informar temporada, competição ou posição, considere todos os registros disponíveis na base.
+        - Quando isso acontecer, deixe isso claro na resposta final.
+        - Sempre informe de forma natural o recorte usado:
+        - jogador, equipe ou agrupamento analisado
+        - temporada(s), se houver
+        - competição(ões), se houver
+        - posição(ões), se houver
+        - minutagem mínima, se houver
+
+        REGRAS DE SEGURANÇA LÓGICA:
+        - Antes de responder, confirme mentalmente que a métrica escolhida existe nas colunas disponíveis ou é um sinônimo claramente mapeável.
+        - Não crie cálculos derivados que a base não suporte com segurança.
+        - Não explique ferramentas, passo a passo interno ou lógica técnica para o usuário.
+        - Entregue apenas o resultado analítico.
 
         REGRAS SOBRE GRÁFICOS E IMAGENS:
-        - Você NÃO consegue plotar gráficos. Explique isso educadamente e RECOMENDE que o usuário utilize as abas "Análises Individuais" ou "Rankings Globais" no topo do painel.
-        
+        - Você não gera gráficos diretamente no chat.
+        - Se o usuário pedir gráfico, explique isso brevemente e recomende as abas "Análises Individuais" ou "Rankings Globais" do painel.
+
         FORMATAÇÃO DA RESPOSTA FINAL:
-        - Apresente rankings e comparações em formato de texto ou lista em tópicos (bullet points). 
-        - Nunca utilize tabelas Markdown.
-        - Destaque o nome dos jogadores e times em **negrito**.
-        - Não explique ao usuário qual ferramenta você usou ou o passo a passo lógico. Entregue apenas a resposta analítica.
+        - Entregue apenas a resposta analítica final.
+        - Não explique qual ferramenta foi usada.
+        - Use texto corrido ou lista com bullets quando isso deixar a resposta mais clara.
+        - Nunca use tabelas Markdown.
+        - Destaque nomes de jogadores, equipes, temporadas, competições e métricas em **negrito**.
+        - Seja claro, direto e analítico.
+        - Quando houver ranking, apresente em lista.
+        - Quando houver filtros aplicados, deixe isso explícito na própria resposta.
         """
-        
+
         # Define as regras e abaixa a temperatura para evitar "alucinações"
         configuracao = types.GenerateContentConfig(
             tools=ferramentas_pandas,
             system_instruction=instrucao,
             temperature=0.1
         )
-        
+
         # Cria a sessão do Gemini
         st.session_state.chat_session = CLIENT.chats.create(
             model='gemini-2.5-flash',
-            # model='gemini-3.1-flash-lite-preview', 
+            # model='gemini-3.1-flash-lite-preview',
             config=configuracao
         )
 
@@ -2796,10 +3078,10 @@ with tab_chatbot:
     # ==========================================
     # 3. PROCESSAMENTO DA MENSAGEM
     # ==========================================
-    
+
     # Campo de digitação para o usuário
     if prompt := st.chat_input("Tire sua dúvida"):
-        
+
         # Salva e exibe a pergunta
         st.session_state.messages.append({"role": "user", "content": prompt})
         with container_mensagens.chat_message("user"):
@@ -2814,18 +3096,18 @@ with tab_chatbot:
                     try:
                         # Envia a pergunta exigindo streaming (pedaço por pedaço)
                         response_stream = st.session_state.chat_session.send_message_stream(prompt)
-                        
+
                         # Função interna para filtrar os pedaços que contêm texto legível
                         def stream_generator():
                             for chunk in response_stream:
                                 if chunk.text:
                                     yield chunk.text
-                        
+
                         # Imprime na tela com efeito de máquina de escrever
                         texto_resposta = st.write_stream(stream_generator())
-                        
+
                         # Salva a resposta final na memória
                         st.session_state.messages.append({"role": "assistant", "content": texto_resposta})
-                        
-                    except Exception as e:
+
+                    except Exception:
                         st.error("Ops! Tive um problema ao analisar os dados. Tente simplificar a pergunta.")
