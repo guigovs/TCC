@@ -5,6 +5,7 @@ import seaborn as sns
 import re
 import plotly.express as px
 import plotly.graph_objects as go
+from pandas.api.types import is_numeric_dtype
 from google import genai
 from google.genai import types
 from analises import AnalisadorFutebol, calcular_diferenca_percentual
@@ -2561,7 +2562,7 @@ with tab_dados:
                 )
 
                 if coluna_selecionada:
-                    if pd.api.types.is_numeric_dtype(df_filtrado_dados_brutos[coluna_selecionada]) and coluna_selecionada not in ['Idade', 'Ano de Nascimento', 'Temporada']:
+                    if is_numeric_dtype(df_filtrado_dados_brutos[coluna_selecionada]) and coluna_selecionada not in ['Idade', 'Ano de Nascimento', 'Temporada']:
                         col_valor, col_operador = st.columns([2, 3])
 
                         with col_valor:
@@ -2616,27 +2617,134 @@ with tab_dados:
 
 
 with tab_chatbot:
-    # Configura o cabeçalho e a descrição da aba
     st.header("Assistente de Inteligência Esportiva")
-    # st.caption("Faça perguntas abertas sobre estatísticas, times ou jogadores. O assistente usará ferramentas nativas para consultar os dados com filtros avançados.")
 
     # ==========================================
     # 1. TOOLS
     # ==========================================
 
-    def filtrar_contexto(df, temporadas=None, competicoes=None, posicoes=None):
+    def validar_coluna(df: pd.DataFrame, coluna: str, contexto: str = "coluna") -> None:
+        if not coluna or not str(coluna).strip():
+            raise ValueError(f"Nenhuma {contexto} foi informada.")
+        if coluna not in df.columns:
+            raise ValueError(f"A {contexto} '{coluna}' não existe na base de dados.")
+
+    def validar_colunas_retorno(df: pd.DataFrame, colunas: list[str]) -> None:
+        if not colunas:
+            raise ValueError("Nenhuma coluna de retorno foi informada.")
+
+        colunas_ausentes = [col for col in colunas if col not in df.columns]
+        if colunas_ausentes:
+            raise ValueError(
+                f"As seguintes colunas de retorno não existem na base: {', '.join(colunas_ausentes)}."
+            )
+
+    def validar_metrica_numerica(df: pd.DataFrame, metrica: str) -> None:
+        validar_coluna(df, metrica, contexto="métrica")
+        if not is_numeric_dtype(df[metrica]):
+            raise ValueError(
+                f"A métrica '{metrica}' existe, mas não é numérica e não pode ser usada nesse cálculo."
+            )
+
+    def normalizar_texto(valor: str) -> str:
+        return str(valor).strip().lower()
+
+    def montar_resumo_filtros(
+        temporadas: list[str] = None,
+        competicoes: list[str] = None,
+        posicoes: list[str] = None,
+        min_minutos: int = None
+    ) -> str:
+        partes = []
+
+        if temporadas:
+            partes.append(f"temporadas: {', '.join(map(str, temporadas))}")
+        if competicoes:
+            partes.append(f"competições: {', '.join(map(str, competicoes))}")
+        if posicoes:
+            partes.append(f"posições: {', '.join(map(str, posicoes))}")
+        if min_minutos is not None and min_minutos > 0:
+            partes.append(f"mínimo de minutos: {min_minutos}")
+
+        if not partes:
+            return "sem filtros adicionais"
+
+        return "; ".join(partes)
+
+    def resolver_correspondencia_textual(
+        df: pd.DataFrame,
+        coluna: str,
+        termo: str,
+        limite_sugestoes: int = 8
+    ) -> tuple[pd.DataFrame | None, str | None]:
+        """
+        Resolve buscas textuais priorizando correspondência exata.
+        Se houver múltiplas correspondências parciais, retorna aviso de ambiguidade.
+        """
+        validar_coluna(df, coluna, contexto="coluna de busca")
+
+        termo = str(termo).strip()
+        if not termo:
+            raise ValueError("O termo de busca está vazio.")
+
+        serie = df[coluna].astype(str)
+
+        mascara_exata = serie.str.strip().str.lower() == normalizar_texto(termo)
+        if mascara_exata.any():
+            return df.loc[mascara_exata].copy(), None
+
+        mascara_parcial = serie.str.contains(
+            termo,
+            case=False,
+            na=False,
+            regex=False
+        )
+
+        correspondencias = sorted(
+            df.loc[mascara_parcial, coluna]
+            .dropna()
+            .astype(str)
+            .unique()
+            .tolist()
+        )
+
+        if not correspondencias:
+            return df.iloc[0:0].copy(), None
+
+        if len(correspondencias) > 1:
+            sugestoes = ", ".join(f"'{c}'" for c in correspondencias[:limite_sugestoes])
+            if len(correspondencias) > limite_sugestoes:
+                sugestoes += ", ..."
+
+            return None, (
+                f"O termo '{termo}' é ambíguo na coluna '{coluna}'. "
+                f"Correspondências encontradas: {sugestoes}. "
+                f"Seja mais específico."
+            )
+
+        return df.loc[mascara_parcial].copy(), None
+
+    def filtrar_contexto(
+        df: pd.DataFrame,
+        temporadas: list[str] = None,
+        competicoes: list[str] = None,
+        posicoes: list[str] = None
+    ) -> pd.DataFrame:
         """
         Centraliza os filtros repetidos de temporada, competição e posição.
         """
         df_alvo = df.copy()
 
         if temporadas:
+            validar_coluna(df_alvo, 'Temporada')
             df_alvo = df_alvo[df_alvo['Temporada'].isin(temporadas)]
 
         if competicoes:
+            validar_coluna(df_alvo, 'Competição')
             df_alvo = df_alvo[df_alvo['Competição'].isin(competicoes)]
 
         if posicoes:
+            validar_coluna(df_alvo, 'Posição')
             padrao_posicoes = '|'.join(re.escape(p) for p in posicoes)
             df_alvo = df_alvo[
                 df_alvo['Posição'].astype(str).str.contains(
@@ -2662,6 +2770,9 @@ with tab_chatbot:
         Exemplo: Onde o 'Vini Jr' joga na temporada 2023?
         """
         try:
+            validar_coluna(meu_dataframe, coluna_busca, contexto="coluna de busca")
+            validar_colunas_retorno(meu_dataframe, colunas_retorno)
+
             df_alvo = filtrar_contexto(
                 meu_dataframe,
                 temporadas=temporadas,
@@ -2669,23 +2780,40 @@ with tab_chatbot:
                 posicoes=posicoes
             )
 
-            # Busca textual literal, sem interpretar regex digitada pelo usuário
-            mascara = df_alvo[coluna_busca].astype(str).str.contains(
-                termo_busca,
-                case=False,
-                na=False,
-                regex=False
+            if df_alvo.empty:
+                return (
+                    "Nenhum dado foi encontrado com os filtros aplicados "
+                    f"({montar_resumo_filtros(temporadas, competicoes, posicoes)})."
+                )
+
+            df_filtrado, aviso = resolver_correspondencia_textual(
+                df_alvo,
+                coluna_busca,
+                termo_busca
             )
 
-            resultado = df_alvo.loc[mascara, colunas_retorno].drop_duplicates()
+            if aviso:
+                return aviso
+
+            if df_filtrado is None or df_filtrado.empty:
+                return (
+                    f"Nenhum dado encontrado para '{termo_busca}' na coluna '{coluna_busca}' "
+                    f"com os filtros aplicados ({montar_resumo_filtros(temporadas, competicoes, posicoes)})."
+                )
+
+            resultado = df_filtrado[colunas_retorno].drop_duplicates()
 
             if resultado.empty:
-                return f"Nenhum dado encontrado para '{termo_busca}' na coluna '{coluna_busca}' com os filtros aplicados."
+                return f"Nenhum dado encontrado para '{termo_busca}'."
 
             return resultado.to_string(index=False)
 
-        except Exception:
-            return "Erro na busca: verifique se as colunas informadas existem na base de dados."
+        except ValueError as e:
+            return str(e)
+        except KeyError as e:
+            return f"Erro de chave/coluna ao buscar dados: {e}"
+        except Exception as e:
+            return f"Erro inesperado na busca: {type(e).__name__} - {e}"
 
     def calcular_estatistica(
         metrica: str,
@@ -2697,10 +2825,19 @@ with tab_chatbot:
         posicoes: list[str] = None
     ) -> str:
         """
-        Usa para calcular totais (soma) ou médias numéricas (media) de um grupo ou jogador.
+        Usa para calcular totais (soma), médias (media), máximos (maximo) ou mínimos (minimo).
         Exemplo: Média de idade do Real Madrid na La Liga.
         """
         try:
+            validar_metrica_numerica(meu_dataframe, metrica)
+
+            operacao = str(operacao).strip().lower()
+            if operacao not in ['soma', 'media', 'maximo', 'minimo']:
+                return (
+                    f"Operação inválida: '{operacao}'. "
+                    "Use apenas 'soma', 'media', 'maximo' ou 'minimo'."
+                )
+
             df_alvo = filtrar_contexto(
                 meu_dataframe,
                 temporadas=temporadas,
@@ -2708,36 +2845,51 @@ with tab_chatbot:
                 posicoes=posicoes
             )
 
-            # Filtra por um jogador ou time específico, se necessário
-            if coluna_filtro and termo_filtro:
-                df_alvo = df_alvo[
-                    df_alvo[coluna_filtro].astype(str).str.contains(
-                        termo_filtro,
-                        case=False,
-                        na=False,
-                        regex=False
-                    )
-                ]
+            if coluna_filtro or termo_filtro:
+                if not coluna_filtro or not termo_filtro:
+                    return "Para aplicar filtro textual, informe 'coluna_filtro' e 'termo_filtro'."
 
-            if df_alvo.empty:
-                return f"Não encontrei dados para calcular após buscar '{termo_filtro}' em '{coluna_filtro}'."
+                validar_coluna(df_alvo, coluna_filtro, contexto="coluna de filtro")
 
-            # Executa a operação matemática escolhida pela IA
+                df_filtrado, aviso = resolver_correspondencia_textual(
+                    df_alvo,
+                    coluna_filtro,
+                    termo_filtro
+                )
+
+                if aviso:
+                    return aviso
+
+                df_alvo = df_filtrado
+
+            if df_alvo is None or df_alvo.empty:
+                return (
+                    "Não encontrei dados para calcular com os filtros informados "
+                    f"({montar_resumo_filtros(temporadas, competicoes, posicoes)})."
+                )
+
+            serie_metrica = pd.to_numeric(df_alvo[metrica], errors='coerce').dropna()
+
+            if serie_metrica.empty:
+                return f"A métrica '{metrica}' não possui valores numéricos válidos após os filtros."
+
             if operacao == 'soma':
-                valor = df_alvo[metrica].sum()
+                valor = serie_metrica.sum()
             elif operacao == 'media':
-                valor = df_alvo[metrica].mean()
+                valor = serie_metrica.mean()
             elif operacao == 'maximo':
-                valor = df_alvo[metrica].max()
-            elif operacao == 'minimo':
-                valor = df_alvo[metrica].min()
+                valor = serie_metrica.max()
             else:
-                return f"Operação inválida: '{operacao}'."
+                valor = serie_metrica.min()
 
             return f"O resultado da operação '{operacao}' na métrica '{metrica}' é {valor:.2f}"
 
-        except Exception:
-            return f"Erro ao calcular. Verifique se a métrica '{metrica}' é uma coluna numérica válida."
+        except ValueError as e:
+            return str(e)
+        except KeyError as e:
+            return f"Erro de chave/coluna ao calcular estatística: {e}"
+        except Exception as e:
+            return f"Erro inesperado ao calcular: {type(e).__name__} - {e}"
 
     def criar_ranking(
         coluna_agrupamento: str,
@@ -2755,27 +2907,47 @@ with tab_chatbot:
         Aceita filtros de temporada, competição, posição e um filtro de corte de "min_minutos" jogados.
         """
         try:
+            validar_coluna(meu_dataframe, coluna_agrupamento, contexto="coluna de agrupamento")
+            validar_metrica_numerica(meu_dataframe, metrica)
+            validar_coluna(meu_dataframe, 'Minutos Jogados', contexto="coluna de apoio para ranking")
+
+            operacao = str(operacao).strip().lower()
+            if operacao not in ['soma', 'media']:
+                return "Operação inválida para ranking. Use apenas 'soma' ou 'media'."
+
+            if not isinstance(top_n, int) or top_n <= 0:
+                return "O parâmetro 'top_n' deve ser um número inteiro maior que zero."
+
+            if not isinstance(min_minutos, int) or min_minutos < 0:
+                return "O parâmetro 'min_minutos' deve ser um número inteiro maior ou igual a zero."
+
             df_alvo = filtrar_contexto(
                 meu_dataframe,
                 temporadas=temporadas,
                 competicoes=competicoes,
                 posicoes=posicoes
-            )
+            ).copy()
 
             if df_alvo.empty:
                 return "Os filtros aplicados não retornaram nenhum dado para gerar o ranking."
 
-            operacao = operacao.strip().lower()
+            df_alvo[metrica] = pd.to_numeric(df_alvo[metrica], errors='coerce')
+            df_alvo['Minutos Jogados'] = pd.to_numeric(
+                df_alvo['Minutos Jogados'],
+                errors='coerce'
+            ).fillna(0)
 
-            if operacao not in ['soma', 'media']:
-                return "Operação inválida para ranking. Use apenas 'soma' ou 'media'."
+            df_alvo = df_alvo.dropna(subset=[metrica])
+
+            if df_alvo.empty:
+                return f"A métrica '{metrica}' não possui valores numéricos válidos para o ranking."
 
             if operacao == 'media':
                 df_agg = df_alvo.groupby(coluna_agrupamento, as_index=False).agg({
                     metrica: 'mean',
                     'Minutos Jogados': 'sum'
                 })
-            else:  # operacao == 'soma'
+            else:
                 df_agg = df_alvo.groupby(coluna_agrupamento, as_index=False).agg({
                     metrica: 'sum',
                     'Minutos Jogados': 'sum'
@@ -2795,259 +2967,670 @@ with tab_chatbot:
 
             return df_ordenado[[coluna_agrupamento, metrica, 'Minutos Jogados']].to_string(index=False)
 
+        except ValueError as e:
+            return str(e)
+        except KeyError as e:
+            return f"Erro de chave/coluna ao gerar ranking: {e}"
         except Exception as e:
-            return f"Erro ao gerar ranking. Detalhe: {e}"
+            return f"Erro ao gerar ranking. Detalhe: {type(e).__name__} - {e}"
+        
+    def criar_lideres_por_grupo(
+        grupo: str,
+        entidade: str,
+        metrica: str,
+        operacao: str = 'soma',
+        top_n_por_grupo: int = 1,
+        crescente: bool = False,
+        temporadas: list[str] = None,
+        competicoes: list[str] = None,
+        posicoes: list[str] = None,
+        min_minutos: int = 0
+    ) -> str:
+        """
+        Usa para responder perguntas como:
+        - "Quem foi o artilheiro de cada temporada?"
+        - "Quem liderou assistências em cada competição?"
+        - "Top 3 jogadores com mais gols por temporada"
 
-    # Lista de funções que a IA tem permissão para usar
-    ferramentas_pandas = [buscar_informacao_direta, calcular_estatistica, criar_ranking]
+        A lógica gera líderes segmentados por grupo, por exemplo:
+        grupo='Temporada', entidade='Jogador', metrica='Gols'
+        """
+        try:
+            validar_coluna(meu_dataframe, grupo, contexto="coluna de grupo")
+            validar_coluna(meu_dataframe, entidade, contexto="coluna de entidade")
+            validar_metrica_numerica(meu_dataframe, metrica)
+            validar_coluna(meu_dataframe, 'Minutos Jogados', contexto="coluna de apoio")
+
+            operacao = str(operacao).strip().lower()
+            if operacao not in ['soma', 'media']:
+                return "Operação inválida. Use apenas 'soma' ou 'media'."
+
+            if not isinstance(top_n_por_grupo, int) or top_n_por_grupo <= 0:
+                return "O parâmetro 'top_n_por_grupo' deve ser um número inteiro maior que zero."
+
+            if not isinstance(min_minutos, int) or min_minutos < 0:
+                return "O parâmetro 'min_minutos' deve ser um número inteiro maior ou igual a zero."
+
+            df_alvo = filtrar_contexto(
+                meu_dataframe,
+                temporadas=temporadas,
+                competicoes=competicoes,
+                posicoes=posicoes
+            ).copy()
+
+            if df_alvo.empty:
+                return (
+                    "Os filtros aplicados não retornaram nenhum dado "
+                    f"({montar_resumo_filtros(temporadas, competicoes, posicoes, min_minutos)})."
+                )
+
+            df_alvo[metrica] = pd.to_numeric(df_alvo[metrica], errors='coerce')
+            df_alvo['Minutos Jogados'] = pd.to_numeric(
+                df_alvo['Minutos Jogados'],
+                errors='coerce'
+            ).fillna(0)
+
+            df_alvo = df_alvo.dropna(subset=[metrica])
+
+            if df_alvo.empty:
+                return f"A métrica '{metrica}' não possui valores numéricos válidos."
+
+            func_agregacao = 'mean' if operacao == 'media' else 'sum'
+
+            df_agg = df_alvo.groupby([grupo, entidade], as_index=False).agg({
+                metrica: func_agregacao,
+                'Minutos Jogados': 'sum'
+            })
+
+            if min_minutos > 0:
+                df_agg = df_agg[df_agg['Minutos Jogados'] >= min_minutos]
+
+            if df_agg.empty:
+                return (
+                    "Nenhum registro atende aos critérios informados "
+                    f"({montar_resumo_filtros(temporadas, competicoes, posicoes, min_minutos)})."
+                )
+
+            # Mantém a sua lógica de desempate:
+            # primeiro pela métrica, depois por Minutos Jogados
+            df_ordenado = df_agg.sort_values(
+                by=[grupo, metrica, 'Minutos Jogados'],
+                ascending=[True, crescente, True]
+            )
+
+            df_top = (
+                df_ordenado.groupby(grupo, as_index=False, group_keys=False)
+                .head(top_n_por_grupo)
+                .reset_index(drop=True)
+            )
+
+            return df_top[[grupo, entidade, metrica, 'Minutos Jogados']].to_string(index=False)
+
+        except ValueError as e:
+            return str(e)
+        except KeyError as e:
+            return f"Erro de chave/coluna ao gerar líderes por grupo: {e}"
+        except Exception as e:
+            return f"Erro ao gerar líderes por grupo. Detalhe: {type(e).__name__} - {e}"
+
+    ferramentas_pandas = [
+        buscar_informacao_direta,
+        calcular_estatistica,
+        criar_ranking,
+        criar_lideres_por_grupo
+    ]
 
     # ==========================================
     # 2. INTERFACE E CONFIGURAÇÃO DO CHAT
     # ==========================================
 
-    # Cria a memória do chat se ela não existir
     if "messages" not in st.session_state:
         st.session_state.messages = []
 
-    # Botão para reiniciar a sessão do chatbot
     if st.button("Nova conversa", key="reset_chatbot_futestat"):
         st.session_state.pop("chat_session", None)
         st.session_state.messages = []
         st.rerun()
 
-    # Inicializa a IA na primeira execução
     if "chat_session" not in st.session_state and CLIENT is not None:
+        def formatar_metricas_existentes(metricas_ref: list[str]) -> str:
+            metricas_existentes = [f"'{m}'" for m in metricas_ref if m in meu_dataframe.columns]
+            return ", ".join(metricas_existentes) if metricas_existentes else "Nenhuma métrica disponível"
+
+        def formatar_mapeamento_jargoes(mapeamento: list[tuple[list[str], list[str]]]) -> str:
+            linhas = []
+
+            for termos, colunas_candidatas in mapeamento:
+                colunas_existentes = [f"'{col}'" for col in colunas_candidatas if col in meu_dataframe.columns]
+                if not colunas_existentes:
+                    continue
+
+                termos_fmt = ", ".join([f'"{termo}"' for termo in termos])
+                colunas_fmt = ", ".join(colunas_existentes)
+                linhas.append(f"- {termos_fmt} -> {colunas_fmt}")
+
+            return "\n".join(linhas)
+
         metricas_participacao_ref = [
             'Partidas',
             'Partidas como Titular',
             'Partidas como Substituto',
+            'Partidas Completas Jogadas',
+            'Partidas como Reserva Não Utilizado',
             'Minutos Jogados',
+            'Minutos Jogados / 90',
             'Minutos Jogados / Partidas',
             'Minutos / Partidas como Titular',
+            'Minutos / Partidas como Substituto',
             'Percentual de Minutos Jogados na Temporada'
         ]
 
-        metricas_ofensivas_ref = [
+        metricas_finalizacao_ref = [
             'Gols',
-            'Gols Esperados',
             'Gols com Bola Rolando',
+            'Pênaltis Convertidos',
+            'Pênaltis Cobrados',
+            'Gols Esperados',
+            'Gols Esperados com Bola Rolando',
             'Gols / 90',
-            'Gols+Assistências / 90',
+            'Gols com Bola Rolando / 90',
+            'Gols Esperados / 90',
             'Finalizações',
             'Finalizações no Gol',
+            'Percentual de Finalizações no Gol',
             'Finalizações / 90',
             'Finalizações no Gol / 90',
-            'Percentual de Finalizações no Gol',
             'Gols / Finalização',
             'Gols / Finalização no Gol',
-            'Toques na Bola na Grande Área Ofensiva'
+            'Distância Média das Finalizações (m)',
+            'Finalizações de Falta',
+            'Gols Esperados com Bola Rolando / Finalizações',
+            'Gols - Gols Esperados',
+            'Gols com Bola Rolando - Gols Esperados com Bola Rolando',
+            'Impedimentos'
         ]
 
-        metricas_criacao_ref = [
+        metricas_criacao_passe_ref = [
             'Assistências',
-            'Assistências Esperadas',
             'Assistências / 90',
+            'Gols + Assistências',
+            'Gols+Assistências / 90',
+            'Assistências Esperadas',
+            'Gols Assistidos Esperados',
+            'Gols Assistidos Esperados / 90',
+            'Assistências - Gols Assistidos Esperados',
             'Passes Chave',
+            'Passes Completos',
+            'Passes Efetuados',
+            'Percentual de Passes Completos',
+            'Distância Total de Passes Completos (m)',
+            'Distância Total dos Passes Progressivos Completos (m)',
             'Passes Progressivos Efetuados',
             'Passes Progressivos Recebidos',
-            'Ações que Resultaram em Finalização',
-            'Ações que Resultaram em Gol',
-            'Cruzamentos',
+            'Passes Curtos Completos',
+            'Passes Curtos Efetuados',
+            'Percentual de Passes Curtos Completos',
+            'Passes Médios Completos',
+            'Passes Médios Efetuados',
+            'Percentual de Passes Médios Completos',
+            'Passes Longos Completos',
+            'Passes Longos Efetuados',
+            'Percentual de Passes Longos Completos',
             'Passes Completos no Terço Final do Campo',
+            'Passes Completos na Grande Área',
+            'Cruzamentos Completos na Grande Área',
+            'Passes em Profundidade',
+            'Inversões de Bola',
+            'Passes em Impedimento',
+            'Passes Bloqueados',
+            'Ações que Resultaram em Finalização',
+            'Ações que Resultaram em Finalização / 90',
+            'Ações que Resultaram em Gol',
+            'Ações que Resultaram em Gol / 90'
+        ]
+
+        metricas_bola_parada_ref = [
+            'Passes com Bola Parada',
+            'Passes de Falta',
+            'Cruzamentos',
+            'Laterais Cobrados',
+            'Escanteios Cobrados',
+            'Escanteios Fechados Cobrados',
+            'Escanteios Abertos Cobrados',
+            'Escanteios Rasteiros Cobrados',
+            'Finalizações de Falta',
+            'Passes com Bola Parada que Resultaram em Finalização',
+            'Passes com Bola Parada que Resultaram em Gol',
+            'Faltas Sofridas que Resultaram em Finalização após a Cobrança',
+            'Faltas Sofridas que Resultaram em Gol após a Cobrança'
+        ]
+
+        metricas_conducao_drible_posse_ref = [
+            'Condução Progressiva',
+            'Conduções de Bola',
+            'Distância Total de Condução de Bola (m)',
+            'Distância Total de Condução de Bola Progressiva (m)',
             'Conduções Progressivas',
-            'Entradas na Grande Área Adversária por Condução de Bola'
+            'Conduções no Terço Ofensivo do Campo',
+            'Entradas na Grande Área Adversária por Condução de Bola',
+            'Tentativas de Drible',
+            'Dribles Bem-sucedidos',
+            'Percentual de Dribles Bem-sucedidos',
+            'Dribles Mal-sucedidos',
+            'Percentual de Dribles Mal-sucedidos',
+            'Perda de Posse de Bola',
+            'Desarmes Recebidos',
+            'Passes Recebidos'
+        ]
+
+        metricas_toques_ref = [
+            'Toques na Bola',
+            'Toques na Bola na Grande Área Defensiva',
+            'Toques na Bola no Terço Defensivo do Campo',
+            'Toques na Bola no Terço Médio do Campo',
+            'Toques na Bola no Terço Ofensivo do Campo',
+            'Toques na Bola na Grande Área Ofensiva',
+            'Toques em Bola Rolando'
         ]
 
         metricas_defensivas_ref = [
             'Desarmes',
+            'Desarmes Bem-sucedidos',
+            'Desarmes no Terço Defensivo do Campo',
+            'Desarmes no Terço Médio do Campo',
+            'Desarmes no Terço Ofensivo do Campo',
+            'Desarmes em Dribles Adversários',
+            'Tentativas de Desarme em Dribles Adversários',
+            'Percentual de Sucesso em Desarmes em Dribles Adversários',
+            'Desarmes em Dribles Adversários Mal-sucedidos',
+            'Bloqueios',
+            'Bloqueios de Finalizações',
+            'Bloqueios de Passes',
             'Interceptações',
             'Desarmes + Interceptações',
-            'Bolas Recuperadas',
-            'Bloqueios',
-            'Faltas Cometidas',
-            'Cartões Amarelos',
-            'Cartões Vermelhos',
-            'Percentual de Sucesso em Desarmes em Dribles Adversários',
+            'Afastamentos',
+            'Erros que Resultaram em Finalizações Adversárias',
+            'Bolas Recuperadas'
+        ]
+
+        metricas_jogo_aereo_disciplina_ref = [
+            'Disputas Aéreas Vencidas',
+            'Disputas Aéreas Perdidas',
             'Percentual de Disputas Aéreas Vencidas',
-            'Erros que Resultaram em Finalizações Adversárias'
+            'Faltas Cometidas',
+            'Faltas Sofridas',
+            'Cartões Amarelos',
+            'Segundo Cartão Amarelo',
+            'Cartões Vermelhos',
+            'Pênaltis Sofridos',
+            'Pênaltis Cometidos',
+            'Gols Contra'
         ]
 
         metricas_impacto_ref = [
             'Média de Pontos Ganhos pela Equipe em Jogos Participados pelo Jogador',
+            'Gols Marcados pela Equipe com o Jogador em Campo',
+            'Gols Sofridos pela Equipe com o Jogador em Campo',
             'Saldo de Gols com o Jogador em Campo',
             'Saldo de Gols com o Jogador em Campo / 90',
             'Saldo de Gols por 90 Minutos com o Jogador em Campo - Saldo de Gols por 90 Minutos sem o Jogador em Campo',
+            'Gols Esperados da Equipe com o Jogador em Campo',
+            'Gols Esperados Sofridos da Equipe com o Jogador em Campo',
             'Saldo de Gols Esperados da Equipe com o Jogador em Campo',
             'Saldo de Gols Esperados da Equipe com o Jogador em Campo / 90',
-            'Saldo de Gols Esperados por 90 Minutos com o Jogador em Campo - Saldo de Gols Esperados por 90 Minutos sem o Jogador em Campo',
-            'Gols Marcados pela Equipe com o Jogador em Campo'
+            'Saldo de Gols Esperados por 90 Minutos com o Jogador em Campo - Saldo de Gols Esperados por 90 Minutos sem o Jogador em Campo'
         ]
 
-        metricas_participacao_txt = ", ".join([f"'{m}'" for m in metricas_participacao_ref if m in meu_dataframe.columns])
-        metricas_ofensivas_txt = ", ".join([f"'{m}'" for m in metricas_ofensivas_ref if m in meu_dataframe.columns])
-        metricas_criacao_txt = ", ".join([f"'{m}'" for m in metricas_criacao_ref if m in meu_dataframe.columns])
-        metricas_defensivas_txt = ", ".join([f"'{m}'" for m in metricas_defensivas_ref if m in meu_dataframe.columns])
-        metricas_impacto_txt = ", ".join([f"'{m}'" for m in metricas_impacto_ref if m in meu_dataframe.columns])
+        metricas_participacao_txt = formatar_metricas_existentes(metricas_participacao_ref)
+        metricas_finalizacao_txt = formatar_metricas_existentes(metricas_finalizacao_ref)
+        metricas_criacao_passe_txt = formatar_metricas_existentes(metricas_criacao_passe_ref)
+        metricas_bola_parada_txt = formatar_metricas_existentes(metricas_bola_parada_ref)
+        metricas_conducao_drible_posse_txt = formatar_metricas_existentes(metricas_conducao_drible_posse_ref)
+        metricas_toques_txt = formatar_metricas_existentes(metricas_toques_ref)
+        metricas_defensivas_txt = formatar_metricas_existentes(metricas_defensivas_ref)
+        metricas_jogo_aereo_disciplina_txt = formatar_metricas_existentes(metricas_jogo_aereo_disciplina_ref)
+        metricas_impacto_txt = formatar_metricas_existentes(metricas_impacto_ref)
 
-        # Definido uma única vez
+        grupos_metricas_txt = f"""
+        - Participação: {metricas_participacao_txt}
+        - Finalização e produção ofensiva: {metricas_finalizacao_txt}
+        - Criação, passe e construção: {metricas_criacao_passe_txt}
+        - Bola parada: {metricas_bola_parada_txt}
+        - Condução, drible e posse: {metricas_conducao_drible_posse_txt}
+        - Toques e ocupação de zonas do campo: {metricas_toques_txt}
+        - Ações defensivas: {metricas_defensivas_txt}
+        - Jogo aéreo e disciplina: {metricas_jogo_aereo_disciplina_txt}
+        - Impacto coletivo: {metricas_impacto_txt}
+        """
+
+        mapeamento_jargoes_ref = [
+            (["chute", "chutes", "finaliza", "finalização", "bate pro gol"], [
+                'Finalizações',
+                'Finalizações no Gol'
+            ]),
+            (["chutes por 90", "finalizações por 90", "finalizações por jogo"], [
+                'Finalizações / 90',
+                'Finalizações no Gol / 90'
+            ]),
+            (["precisão de chute", "pontaria"], [
+                'Percentual de Finalizações no Gol'
+            ]),
+            (["eficiência de chute", "aproveitamento de finalização"], [
+                'Gols / Finalização',
+                'Gols / Finalização no Gol',
+                'Gols Esperados com Bola Rolando / Finalizações'
+            ]),
+            (["gols sem pênalti", "gols em bola rolando"], [
+                'Gols com Bola Rolando',
+                'Gols com Bola Rolando / 90'
+            ]),
+            (["xg", "gols esperados"], [
+                'Gols Esperados',
+                'Gols Esperados / 90',
+                'Gols Esperados com Bola Rolando'
+            ]),
+            (["xa", "assistência esperada", "assistências esperadas"], [
+                'Assistências Esperadas',
+                'Assistências / 90',
+                'Gols Assistidos Esperados',
+                'Gols Assistidos Esperados / 90'
+            ]),
+            (["participação em gols", "contribuição em gols"], [
+                'Gols + Assistências',
+                'Gols+Assistências / 90'
+            ]),
+            (["passes decisivos", "passe decisivo"], [
+                'Passes Chave'
+            ]),
+            (["criação", "criar chances", "deixa na cara do gol"], [
+                'Passes Chave',
+                'Assistências',
+                'Assistências Esperadas',
+                'Ações que Resultaram em Finalização',
+                'Ações que Resultaram em Gol'
+            ]),
+            (["passe", "passes certos", "acerto de passe", "precisão de passe"], [
+                'Passes Completos',
+                'Passes Efetuados',
+                'Percentual de Passes Completos'
+            ]),
+            (["passes curtos"], [
+                'Passes Curtos Completos',
+                'Passes Curtos Efetuados',
+                'Percentual de Passes Curtos Completos'
+            ]),
+            (["passes médios"], [
+                'Passes Médios Completos',
+                'Passes Médios Efetuados',
+                'Percentual de Passes Médios Completos'
+            ]),
+            (["passes longos", "lançamento", "lançamentos"], [
+                'Passes Longos Completos',
+                'Passes Longos Efetuados',
+                'Percentual de Passes Longos Completos'
+            ]),
+            (["passes progressivos"], [
+                'Passes Progressivos Efetuados',
+                'Passes Progressivos Recebidos',
+                'Distância Total dos Passes Progressivos Completos (m)'
+            ]),
+            (["passe em profundidade", "passes em profundidade"], [
+                'Passes em Profundidade'
+            ]),
+            (["virada de jogo", "inversão", "inversões"], [
+                'Inversões de Bola'
+            ]),
+            (["bola parada"], [
+                'Passes com Bola Parada',
+                'Passes de Falta',
+                'Escanteios Cobrados',
+                'Cruzamentos'
+            ]),
+            (["escanteio", "escanteios"], [
+                'Escanteios Cobrados',
+                'Escanteios Fechados Cobrados',
+                'Escanteios Abertos Cobrados',
+                'Escanteios Rasteiros Cobrados'
+            ]),
+            (["cruzamento", "cruzamentos"], [
+                'Cruzamentos',
+                'Cruzamentos Completos na Grande Área'
+            ]),
+            (["drible", "dribles"], [
+                'Tentativas de Drible',
+                'Dribles Bem-sucedidos',
+                'Percentual de Dribles Bem-sucedidos',
+                'Dribles Mal-sucedidos'
+            ]),
+            (["condução", "conduções"], [
+                'Conduções de Bola',
+                'Conduções Progressivas',
+                'Distância Total de Condução de Bola (m)',
+                'Distância Total de Condução de Bola Progressiva (m)'
+            ]),
+            (["condução progressiva", "carregadas progressivas"], [
+                'Condução Progressiva',
+                'Conduções Progressivas'
+            ]),
+            (["entrada na área", "entradas na área por condução"], [
+                'Entradas na Grande Área Adversária por Condução de Bola'
+            ]),
+            (["perda de bola", "perdas de posse"], [
+                'Perda de Posse de Bola'
+            ]),
+            (["foi desarmado", "desarmes recebidos"], [
+                'Desarmes Recebidos'
+            ]),
+            (["passes recebidos", "recebimento"], [
+                'Passes Recebidos',
+                'Passes Progressivos Recebidos'
+            ]),
+            (["toques", "toques na bola"], [
+                'Toques na Bola',
+                'Toques em Bola Rolando'
+            ]),
+            (["toques no terço final", "toques no terço ofensivo"], [
+                'Toques na Bola no Terço Ofensivo do Campo',
+                'Toques na Bola na Grande Área Ofensiva'
+            ]),
+            (["toques no terço médio"], [
+                'Toques na Bola no Terço Médio do Campo'
+            ]),
+            (["toques no terço defensivo", "toques na defesa"], [
+                'Toques na Bola no Terço Defensivo do Campo',
+                'Toques na Bola na Grande Área Defensiva'
+            ]),
+            (["roubadas de bola", "recuperações"], [
+                'Bolas Recuperadas',
+                'Desarmes',
+                'Interceptações',
+                'Desarmes + Interceptações'
+            ]),
+            (["marcação", "ação defensiva"], [
+                'Desarmes + Interceptações',
+                'Bolas Recuperadas',
+                'Bloqueios',
+                'Afastamentos'
+            ]),
+            (["desarme", "desarmes"], [
+                'Desarmes',
+                'Desarmes Bem-sucedidos',
+                'Desarmes em Dribles Adversários',
+                'Percentual de Sucesso em Desarmes em Dribles Adversários'
+            ]),
+            (["interceptação", "interceptações"], [
+                'Interceptações'
+            ]),
+            (["bloqueio", "bloqueios"], [
+                'Bloqueios',
+                'Bloqueios de Finalizações',
+                'Bloqueios de Passes'
+            ]),
+            (["corte", "afastamento", "afastamentos"], [
+                'Afastamentos'
+            ]),
+            (["erro defensivo", "erro que gerou finalização"], [
+                'Erros que Resultaram em Finalizações Adversárias'
+            ]),
+            (["jogo aéreo", "duelo aéreo", "duelos aéreos", "disputa aérea"], [
+                'Disputas Aéreas Vencidas',
+                'Disputas Aéreas Perdidas',
+                'Percentual de Disputas Aéreas Vencidas'
+            ]),
+            (["faltas cometidas"], [
+                'Faltas Cometidas'
+            ]),
+            (["faltas sofridas"], [
+                'Faltas Sofridas'
+            ]),
+            (["cartões", "disciplina"], [
+                'Cartões Amarelos',
+                'Segundo Cartão Amarelo',
+                'Cartões Vermelhos'
+            ]),
+            (["pênalti sofrido", "pênaltis sofridos"], [
+                'Pênaltis Sofridos'
+            ]),
+            (["pênalti cometido", "pênaltis cometidos"], [
+                'Pênaltis Cometidos'
+            ]),
+            (["impacto no time", "impacto coletivo"], [
+                'Média de Pontos Ganhos pela Equipe em Jogos Participados pelo Jogador',
+                'Saldo de Gols com o Jogador em Campo',
+                'Saldo de Gols com o Jogador em Campo / 90',
+                'Saldo de Gols Esperados da Equipe com o Jogador em Campo',
+                'Saldo de Gols Esperados da Equipe com o Jogador em Campo / 90'
+            ]),
+            (["saldo com o jogador", "com e sem o jogador"], [
+                'Saldo de Gols por 90 Minutos com o Jogador em Campo - Saldo de Gols por 90 Minutos sem o Jogador em Campo',
+                'Saldo de Gols Esperados por 90 Minutos com o Jogador em Campo - Saldo de Gols Esperados por 90 Minutos sem o Jogador em Campo'
+            ]),
+            (["minutagem", "minutos"], [
+                'Minutos Jogados',
+                'Minutos Jogados / Partidas',
+                'Minutos / Partidas como Titular'
+            ]),
+            (["jogos", "partidas jogadas"], [
+                'Partidas',
+                'Partidas como Titular',
+                'Partidas como Substituto'
+            ]),
+            (["bola rolando"], [
+                'Gols com Bola Rolando',
+                'Gols Esperados com Bola Rolando',
+                'Passes com Bola Rolando',
+                'Toques em Bola Rolando'
+            ])
+        ]
+
+        mapeamento_jargoes_txt = formatar_mapeamento_jargoes(mapeamento_jargoes_ref)
+
         colunas_disponiveis = ", ".join([f"'{col}'" for col in meu_dataframe.columns])
 
         instrucao = f"""
         Você é um assistente de inteligência de dados de futebol.
 
         REGRAS PRINCIPAIS:
-        - Você DEVE usar exclusivamente as ferramentas fornecidas para consultar a base.
+        - Use exclusivamente as ferramentas fornecidas para consultar a base.
         - Nunca invente dados.
-        - Nunca assuma a existência de colunas fora da base.
-        - As colunas disponíveis na base são exatamente estas: {colunas_disponiveis}.
-        - Sua obrigação é responder com precisão, coerência e fidelidade total aos dados.
-        - Quando houver mais de uma interpretação plausível, não improvise silenciosamente.
+        - Nunca assuma colunas que não existam.
+        - As colunas disponíveis são exatamente estas: {colunas_disponiveis}.
+        - Responda com precisão, coerência e fidelidade total aos dados.
+        - Se houver ambiguidade real, deixe isso explícito.
+        - Se um nome parcial corresponder a mais de uma entidade, não misture os dados sem sinalizar.
+        - Se uma tool retornar erro, ausência de dado ou ambiguidade, respeite isso na resposta final.
 
-        FERRAMENTAS DISPONÍVEIS E QUANDO USAR:
-        1. Use `buscar_informacao_direta` quando o usuário quiser descobrir, identificar ou listar características de um jogador, equipe, competição ou posição.
-        Exemplos:
-        - "Qual a nacionalidade do Rodrygo?"
-        - "Em que equipe joga o Kane?"
-        - "Qual a posição do Bellingham?"
-        - "Quais competições o Haaland disputou?"
-
-        2. Use `calcular_estatistica` quando o usuário quiser soma, média, máximo ou mínimo de uma métrica.
-        Exemplos:
-        - "Quantos gols o Haaland fez?"
-        - "Qual a média de assistências do De Bruyne?"
-        - "Qual o máximo de finalizações do Mbappé?"
-        - "Qual o total de desarmes do Rúben Dias?"
-
-        3. Use `criar_ranking` quando o usuário pedir ranking, top N, líder, melhores, piores, comparação ampla, "quem tem mais", "quem tem menos" ou equivalentes.
-        Exemplos:
-        - "Top 5 jogadores com mais gols"
-        - "Quem tem mais assistências?"
-        - "Melhores atacantes em gols por 90"
-        - "Quem lidera em passes chave?"
+        QUANDO USAR CADA FERRAMENTA:
+        - Use `buscar_informacao_direta` para identificar, listar ou descobrir atributos de jogador, equipe, competição ou posição.
+        - Use `calcular_estatistica` para soma, média, máximo ou mínimo de uma métrica.
+        - Use `criar_ranking` para top N, líderes gerais, melhores, piores, quem tem mais, quem tem menos ou comparações amplas em um único ranking.
+        - Use `criar_lideres_por_grupo` quando o usuário pedir líderes segmentados por grupo, como:
+          - artilheiro de cada temporada
+          - líder de assistências por competição
+          - melhor jogador de cada posição
+          - top 3 de cada temporada
 
         REGRAS DE AGREGAÇÃO:
-        - Para métricas de volume bruto, contagem acumulada ou produção total, prefira `operacao='soma'`.
-        - Para métricas de taxa, percentual, razão, eficiência, distância média, média geral, por jogo ou por 90 minutos, prefira `operacao='media'`.
-        - Para perguntas sobre maior valor isolado, use `operacao='maximo'`.
-        - Para perguntas sobre menor valor isolado, use `operacao='minimo'`.
-
-        TRATAMENTO DAS MÉTRICAS:
-        - A lógica de agregação deve respeitar o tipo da métrica.
-        - Use como princípio:
-        - métricas de volume -> soma
-        - métricas de taxa, percentual ou eficiência -> média
-        - Nunca trate como equivalentes métricas que não são equivalentes.
-        Exemplos:
-        - 'Assistências' != 'Passes Chave'
-        - 'Gols' != 'Gols / 90'
-        - 'Finalizações' != 'Percentual de Finalizações no Gol'
-        - 'Gols Esperados' != 'Assistências Esperadas'
-
-        GRUPOS DE MÉTRICAS IMPORTANTES DA BASE:
-        - Participação: {metricas_participacao_txt}
-        - Ofensivas: {metricas_ofensivas_txt}
-        - Criação: {metricas_criacao_txt}
-        - Defensivas: {metricas_defensivas_txt}
-        - Impacto coletivo: {metricas_impacto_txt}
-
-        MAPEAMENTO DE JARGÕES E SINÔNIMOS:
-        - "chutes", "finaliza", "bate pro gol" -> 'Finalizações' ou 'Finalizações no Gol'
-        - "chutes por 90", "finalizações por jogo" -> métricas de finalização por 90
-        - "precisão de chute" -> 'Percentual de Finalizações no Gol'
-        - "eficiência de chute", "aproveitamento de finalização" -> razões como 'Gols / Finalização' ou 'Gols / Finalização no Gol'
-
-        - "passes decisivos", "criação", "deixa na cara do gol" -> 'Passes Chave', 'Assistências', 'Assistências Esperadas' ou 'Ações que Resultaram em Finalização'
-        - "xA" -> 'Assistências Esperadas'
-        - "xG" -> 'Gols Esperados'
-        - "passes progressivos" -> 'Passes Progressivos Efetuados'
-        - "recebimento progressivo" -> 'Passes Progressivos Recebidos'
-        - "conduções progressivas" -> 'Conduções Progressivas'
-        - "SCA" -> 'Ações que Resultaram em Finalização'
-        - "GCA" -> 'Ações que Resultaram em Gol'
-        - "terço final" -> métricas que contenham "Terço Final do Campo"
-
-        - "roubadas de bola", "marcação" -> 'Desarmes', 'Interceptações', 'Desarmes + Interceptações' ou 'Bolas Recuperadas'
-        - "jogo aéreo" -> métricas de disputas aéreas
-        - "drible" -> métricas de dribles bem-sucedidos ou de sucesso defensivo em dribles adversários
-
-        - "impacto no time", "impacto coletivo" -> priorize métricas de pontos, saldo de gols, saldo de gols esperados e saldo com/sem o jogador por 90
-        - "participação em gols" -> 'Gols + Assistências' ou métricas relacionadas por 90, dependendo do pedido
-        - "bola rolando" -> priorize colunas que contenham "Bola Rolando"
-        - "jogos", "partidas jogadas" -> 'Partidas'
-        - "minutagem" -> 'Minutos Jogados'
+        - Métricas de volume, contagem ou produção total -> `operacao='soma'`
+        - Métricas de taxa, percentual, eficiência, média, distância, por jogo ou por 90 -> `operacao='media'`
+        - Maior valor isolado -> `operacao='maximo'`
+        - Menor valor isolado -> `operacao='minimo'`
 
         REGRAS DE INTERPRETAÇÃO:
-        - Se o usuário falar em volume, total ou quantidade acumulada, prefira métricas brutas.
-        - Se o usuário falar em eficiência, aproveitamento, rendimento, impacto proporcional, por jogo ou por 90, prefira métricas relativas.
-        - Se a pergunta for do tipo "quem foi melhor", "quem rende mais", "quem é mais eficiente", não dê opinião pessoal.
-        - Nesses casos, explique que a resposta depende da métrica e sugira opções objetivas adequadas ao contexto.
+        - Se o usuário pedir volume, total ou quantidade acumulada, prefira métricas brutas.
+        - Se o usuário pedir eficiência, aproveitamento, rendimento, impacto proporcional, por jogo ou por 90, prefira métricas relativas.
+        - Nunca trate métricas parecidas como equivalentes.
+        - Exemplos:
+          - 'Assistências' != 'Passes Chave'
+          - 'Gols' != 'Gols / 90'
+          - 'Finalizações' != 'Percentual de Finalizações no Gol'
+          - 'Gols Esperados' != 'Assistências Esperadas'
+        - Se o usuário pedir "de cada temporada", "por temporada", "de cada competição", "por posição" ou equivalentes, trate isso como comparação segmentada por grupo.
+        - Nesses casos, prefira `criar_lideres_por_grupo` em vez de `criar_ranking`.
+
+        GRUPOS DE MÉTRICAS IMPORTANTES DA BASE:
+        {grupos_metricas_txt}
+
+        MAPEAMENTO DE JARGÕES E SINÔNIMOS:
+        {mapeamento_jargoes_txt}
 
         REGRAS DE AMBIGUIDADE:
-        - Sempre prefira:
-        1. a interpretação mais literal do pedido do usuário
-        2. a coluna semanticamente mais próxima
-        3. uma resposta breve explicando as opções plausíveis, se a ambiguidade continuar real
-        - Nunca troque silenciosamente uma métrica por outra parecida.
+        - Prefira sempre:
+          1. a interpretação mais literal do pedido
+          2. a coluna semanticamente mais próxima
+          3. uma resposta curta explicando as opções plausíveis, se a ambiguidade continuar
+        - Não troque silenciosamente uma métrica por outra parecida.
         - Se nenhuma coluna corresponder bem ao pedido, diga isso claramente.
 
-        REGRAS DE BUSCA FLEXÍVEL:
-        - O usuário pode usar nomes incompletos, apelidos, sobrenomes ou termos informais.
-        - Ao filtrar jogadores, equipes ou competições, prefira correspondência parcial.
-        - Porém, não misture estatísticas de entidades diferentes como se fossem a mesma.
-        - Se um nome parcial puder corresponder a mais de um jogador, evite somar dados de pessoas diferentes sem sinalizar isso.
-        - Se o pedido envolver um nome potencialmente ambíguo, seja cauteloso na interpretação.
-
-        REGRAS DE FILTRO:
-        - Temporadas: aplique quando o usuário disser algo como "em 2023/2024", "na temporada 2024/2025".
-        - Competições: aplique quando o usuário disser algo como "na La Liga", "na Premier League".
-        - Posições: aplique quando o usuário disser algo como "entre atacantes", "zagueiros", "meio-campistas".
+        REGRAS DE BUSCA E FILTRO:
+        - O usuário pode usar apelidos, sobrenomes, nomes incompletos ou termos informais.
+        - Ao filtrar jogador, equipe, competição ou posição, prefira correspondência parcial.
+        - Temporadas: aplique quando o usuário mencionar temporada ou ano esportivo.
+        - Competições: aplique quando o usuário mencionar liga, campeonato ou torneio.
+        - Posições: aplique quando o usuário mencionar grupos como atacantes, zagueiros, laterais, meio-campistas ou goleiros.
         - Trate posição como correspondência parcial, não como igualdade exata.
-        - Corte de minutagem:
-        - use `min_minutos` apenas em `criar_ranking`
-        - use esse filtro quando o usuário pedir algo como:
-            - "com mais de 1000 minutos"
-            - "considerando só quem jogou bastante"
-            - "desconsiderando amostra pequena"
-        - Não invente corte de minutagem se o usuário não pedir.
+        - Use `min_minutos` apenas em `criar_ranking` ou `criar_lideres_por_grupo` e somente quando o usuário pedir recorte de amostra, como:
+          - "com mais de 1000 minutos"
+          - "considerando só quem jogou bastante"
+          - "desconsiderando amostra pequena"
 
         REGRAS DE COMPARAÇÃO JUSTA:
-        - Para eficiência, rendimento e impacto proporcional, prefira métricas relativas.
-        - Para volume de produção, prefira métricas totais.
-        - Evite conclusões fortes com amostra pequena quando a pergunta indicar comparação justa.
-        - Em rankings, se o usuário demonstrar preocupação com justiça amostral, use `min_minutos`.
+        - Para eficiência e rendimento, prefira métricas relativas.
+        - Para produção total, prefira métricas absolutas.
+        - Se o usuário demonstrar preocupação com amostra pequena, use `min_minutos` no ranking ou na comparação segmentada.
 
         REGRAS DE CONTEXTO:
         - Mantenha o contexto da conversa.
-        - Se o usuário fizer continuação curta, como:
-        - "E o Vini Jr?"
-        - "E na Premier League?"
-        - "E entre os zagueiros?"
-        preserve a métrica, os filtros e o tipo de comparação da pergunta anterior, alterando apenas o novo elemento citado.
+        - Em continuidades curtas como:
+          - "E o Vini Jr?"
+          - "E na Premier League?"
+          - "E entre os zagueiros?"
+          preserve a métrica, os filtros e o tipo de comparação da pergunta anterior, alterando apenas o novo elemento citado.
 
         REGRAS DE ESCOPO:
-        - Se o usuário não informar temporada, competição ou posição, considere todos os registros disponíveis na base.
+        - Se o usuário não informar temporada, competição ou posição, considere todos os registros disponíveis.
         - Quando isso acontecer, deixe isso claro na resposta final.
-        - Sempre informe de forma natural o recorte usado:
-        - jogador, equipe ou agrupamento analisado
-        - temporada(s), se houver
-        - competição(ões), se houver
-        - posição(ões), se houver
-        - minutagem mínima, se houver
+        - Informe de forma natural o recorte usado quando ele existir:
+          - jogador, equipe ou agrupamento
+          - temporada(s)
+          - competição(ões)
+          - posição(ões)
+          - minutagem mínima
 
         REGRAS DE SEGURANÇA LÓGICA:
-        - Antes de responder, confirme mentalmente que a métrica escolhida existe nas colunas disponíveis ou é um sinônimo claramente mapeável.
+        - Antes de responder, confirme que a métrica escolhida existe nas colunas disponíveis ou é um sinônimo claramente mapeável.
         - Não crie cálculos derivados que a base não suporte com segurança.
-        - Não explique ferramentas, passo a passo interno ou lógica técnica para o usuário.
+        - Não explique ferramenta, lógica interna ou passo técnico ao usuário.
         - Entregue apenas o resultado analítico.
 
-        REGRAS SOBRE GRÁFICOS E IMAGENS:
+        REGRAS SOBRE GRÁFICOS:
         - Você não gera gráficos diretamente no chat.
-        - Se o usuário pedir gráfico, explique isso brevemente e recomende as abas "Análises Individuais" ou "Rankings Globais" do painel.
+        - Se o usuário pedir gráfico, oriente de forma breve para as abas "Análises Individuais" ou "Rankings Globais".
 
         FORMATAÇÃO DA RESPOSTA FINAL:
         - Entregue apenas a resposta analítica final.
         - Não explique qual ferramenta foi usada.
-        - Use texto corrido ou lista com bullets quando isso deixar a resposta mais clara.
+        - Use texto corrido ou lista simples quando isso deixar a resposta mais clara.
         - Nunca use tabelas Markdown.
         - Destaque nomes de jogadores, equipes, temporadas, competições e métricas em **negrito**.
         - Seja claro, direto e analítico.
@@ -3055,21 +3638,17 @@ with tab_chatbot:
         - Quando houver filtros aplicados, deixe isso explícito na própria resposta.
         """
 
-        # Define as regras e abaixa a temperatura para evitar "alucinações"
         configuracao = types.GenerateContentConfig(
             tools=ferramentas_pandas,
             system_instruction=instrucao,
             temperature=0.1
         )
 
-        # Cria a sessão do Gemini
         st.session_state.chat_session = CLIENT.chats.create(
             model='gemini-2.5-flash',
-            # model='gemini-3.1-flash-lite-preview',
             config=configuracao
         )
 
-    # Renderiza o histórico de mensagens na tela
     container_mensagens = st.container()
     for message in st.session_state.messages:
         with container_mensagens.chat_message(message["role"]):
@@ -3079,35 +3658,69 @@ with tab_chatbot:
     # 3. PROCESSAMENTO DA MENSAGEM
     # ==========================================
 
-    # Campo de digitação para o usuário
     if prompt := st.chat_input("Tire sua dúvida"):
-
-        # Salva e exibe a pergunta
         st.session_state.messages.append({"role": "user", "content": prompt})
         with container_mensagens.chat_message("user"):
             st.markdown(prompt)
 
-        # Processa a resposta da IA
         with container_mensagens.chat_message("assistant"):
             if CLIENT is None:
                 st.error("O assistente está offline. Verifique a chave da API.")
+            elif "chat_session" not in st.session_state:
+                st.error("A sessão do assistente não foi inicializada corretamente.")
             else:
                 with st.spinner("Analisando os dados..."):
                     try:
-                        # Envia a pergunta exigindo streaming (pedaço por pedaço)
                         response_stream = st.session_state.chat_session.send_message_stream(prompt)
 
-                        # Função interna para filtrar os pedaços que contêm texto legível
                         def stream_generator():
                             for chunk in response_stream:
-                                if chunk.text:
-                                    yield chunk.text
+                                texto_chunk = getattr(chunk, "text", None)
+                                if texto_chunk:
+                                    yield texto_chunk
 
-                        # Imprime na tela com efeito de máquina de escrever
                         texto_resposta = st.write_stream(stream_generator())
 
-                        # Salva a resposta final na memória
-                        st.session_state.messages.append({"role": "assistant", "content": texto_resposta})
+                        if not texto_resposta or not str(texto_resposta).strip():
+                            texto_resposta = "Não consegui gerar uma resposta válida para essa pergunta."
+                            st.warning(texto_resposta)
 
-                    except Exception:
-                        st.error("Ops! Tive um problema ao analisar os dados. Tente simplificar a pergunta.")
+                        st.session_state.messages.append({
+                            "role": "assistant",
+                            "content": texto_resposta
+                        })
+
+                    except ValueError as e:
+                        mensagem_erro = f"Não consegui processar a pergunta: {e}"
+                        st.warning(mensagem_erro)
+                        st.session_state.messages.append({
+                            "role": "assistant",
+                            "content": mensagem_erro
+                        })
+
+                    except KeyError as e:
+                        mensagem_erro = f"Erro de coluna ou chave na análise: {e}"
+                        st.error(mensagem_erro)
+                        st.session_state.messages.append({
+                            "role": "assistant",
+                            "content": mensagem_erro
+                        })
+
+                    except AttributeError as e:
+                        mensagem_erro = f"Erro de sessão ou configuração do assistente: {e}"
+                        st.error(mensagem_erro)
+                        st.session_state.messages.append({
+                            "role": "assistant",
+                            "content": mensagem_erro
+                        })
+
+                    except Exception as e:
+                        mensagem_erro = (
+                            f"Ops! Tive um problema ao analisar os dados. "
+                            f"Detalhe técnico: {type(e).__name__} - {e}"
+                        )
+                        st.error(mensagem_erro)
+                        st.session_state.messages.append({
+                            "role": "assistant",
+                            "content": mensagem_erro
+                        })
