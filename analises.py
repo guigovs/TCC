@@ -178,10 +178,10 @@ class AnalisadorFutebol:
         
         return df_rank, None
     
-    def calcular_revelacoes(self, metrica, temporada_anterior, temporada_atual, lista_media, min_minutos=500, n=10, competicoes=None, posicoes=None):
+    def calcular_evolucoes(self, metrica, temporada_anterior, temporada_atual, lista_media, min_minutos=500, n=10, competicoes=None, posicoes=None):
         """
         Calcula a evolução de performance dos jogadores entre duas temporadas distintas
-        para identificar destaques e revelações.
+        para identificar os jogadores com maior evolução.
         """
         df = self.df.copy()
         
@@ -220,14 +220,14 @@ class AnalisadorFutebol:
         
         # Ordena os jogadores pela magnitude da melhora (decrescente)
         # Utiliza a menor minutagem na temporada atual como critério de desempate
-        top_revelacoes = df_comp.sort_values(
+        top_evolucoes = df_comp.sort_values(
             by=['Melhora', 'Minutos Jogados_atu'],
             ascending=[False, True]
         ).head(n).reset_index(drop=True)
         
-        top_revelacoes.index += 1
+        top_evolucoes.index += 1
         
-        return top_revelacoes, None
+        return top_evolucoes, None
 
     def calcular_consistencia(self, metrica, lista_media, min_temporadas=3, min_minutos=2000, n=10, competicoes=None, posicoes=None, temporadas=None):
         """

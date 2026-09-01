@@ -2005,8 +2005,8 @@ with tab_individuais:
 with tab_rankings_globais:
     st.header("Central de Rankings e Inteligência de Dados")
     
-    subtab_top, subtab_revelacao, subtab_consistencia, subtab_idade = st.tabs([
-        "**Melhores Jogadores**", "**Revelações da Temporada**", "**Jogadores Consistentes**", "**Curva de Idade**"
+    subtab_top, subtab_evolucao, subtab_consistencia, subtab_idade = st.tabs([
+        "**Melhores Jogadores**", "**Maiores Evoluções**", "**Jogadores Consistentes**", "**Curva de Idade**"
     ])
 
     # --------------------------------------------------------------------------
@@ -2106,7 +2106,7 @@ with tab_rankings_globais:
     # --------------------------------------------------------------------------
     # 2. REVELAÇÕES
     # --------------------------------------------------------------------------
-    with subtab_revelacao:
+    with subtab_evolucao:
         st.subheader("Ranking de Jogadores com Maior Evolução")
         st.markdown("Compara a performance de um jogador na temporada selecionada em relação à anterior.")
         
@@ -2171,7 +2171,7 @@ with tab_rankings_globais:
                 temporada_passada = all_seasons[idx_atual - 1]
                 temporada_atual = rev_temp_selecionada
                 
-                df_rev, erro = analisador.calcular_revelacoes(
+                df_evolucao, erro = analisador.calcular_evolucoes(
                     metrica=rev_metrica,
                     temporada_anterior=temporada_passada,
                     temporada_atual=temporada_atual,
@@ -2185,17 +2185,17 @@ with tab_rankings_globais:
                 if erro:
                     st.warning(erro)
                 else:
-                    st.subheader(f"Top {rev_n} Revelações - {rev_metrica}")
+                    st.subheader(f"Top {rev_n} Maiores Evoluções - {rev_metrica}")
                     
                     # Prepara dados do gráfico (respeitando o N escolhido)
-                    df_rev_graph = df_rev.head(rev_n).sort_values('Melhora', ascending=True)
+                    df_evolucao_graph = df_evolucao.head(rev_n).sort_values('Melhora', ascending=True)
                     
                     # Layout: Tabela (Esq) | Gráfico (Dir)
                     col_data, col_graph = st.columns([1.5, 2])
                     
                     with col_data:
                         st.dataframe(
-                        df_rev.reset_index()[['index', 'Jogador', f'{rev_metrica}_ant', f'{rev_metrica}_atu', 'Melhora', "Minutos Jogados_atu"
+                        df_evolucao.reset_index()[['index', 'Jogador', f'{rev_metrica}_ant', f'{rev_metrica}_atu', 'Melhora', "Minutos Jogados_atu"
                         ]].rename(columns={
                             'index': 'Ranking',
                             f'{rev_metrica}_ant': f'{rev_metrica} ({temporada_passada})',
@@ -2208,10 +2208,10 @@ with tab_rankings_globais:
                     )
 
                     with col_graph:
-                        df_rev_graph = df_rev.head(rev_n)
+                        df_evolucao_graph = df_evolucao.head(rev_n)
 
                         fig_rev = px.bar(
-                            df_rev_graph,
+                            df_evolucao_graph,
                             x='Melhora', y='Jogador', orientation='h',
                             text='Melhora', template="plotly_dark",
                             # O label abaixo define o título do eixo X. 
@@ -2231,7 +2231,7 @@ with tab_rankings_globais:
                         st.plotly_chart(fig_rev, width='stretch')
 
             else:
-                st.info("Selecione a métrica e a temporada para visualizar as revelações.")
+                st.info("Selecione a métrica e a temporada para visualizar as maiores evoluções.")
 
     # --------------------------------------------------------------------------
     # 3. CONSISTÊNCIA
