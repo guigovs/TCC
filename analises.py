@@ -3,6 +3,8 @@ from sklearn.preprocessing import StandardScaler
 from scipy.spatial.distance import cdist
 
 def calcular_diferenca_percentual(valor_atual, melhor_valor, tipo_metrica='max', partidas=1):
+    if tipo_metrica == 'neutro':
+        return None, "normal"
     # Caso especial: quando o melhor_valor é 0
     if melhor_valor == 0:
         # Se ambos são 0, é o melhor valor
@@ -306,14 +308,16 @@ class AnalisadorFutebol:
         if posicoes:
             df = df[df['Posição'].isin(posicoes)]
 
-        # Remove registros que não atendem ao critério mínimo de minutos jogados
-        df = df[df['Minutos Jogados'] >= min_minutos]
-
         # Agrupa primeiramente por Jogador e Idade para obter a performance individual em cada idade
         df_player_age = df.groupby(['Jogador', 'Idade']).agg({
             metrica: agg_type,
             'Minutos Jogados': 'sum'
         }).reset_index()
+
+        # Descarta o jogador na idade cujo total de minutos não atinge o critério.
+        # Aplicado após o agrupamento para que minutos de clubes diferentes na
+        # mesma temporada sejam somados antes da verificação.
+        df_player_age = df_player_age[df_player_age['Minutos Jogados'] >= min_minutos]
         
         # Agrupa os resultados por Idade para obter a média geral da métrica para aquela idade
         curva = df_player_age.groupby('Idade').agg(

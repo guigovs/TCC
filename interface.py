@@ -143,12 +143,12 @@ with tab_individuais:
                     kpi1, kpi2, kpi3 = st.columns(3)
                     kpi1.metric("Partidas", df_filtrado['Partidas'].sum())
                     kpi2.metric("Como Titular", df_filtrado['Partidas como Titular'].sum())
-                    kpi3.metric("Como Reserva", df_filtrado['Partidas como Substituto'].sum())
+                    kpi3.metric("Como Substituto", df_filtrado['Partidas como Substituto'].sum())
                     
                     kpi4, kpi5, kpi6 = st.columns(3)
                     kpi4.metric("Minutos Jogados", df_filtrado['Minutos Jogados'].sum())
-                    kpi5.metric("Minutos Jogados por Partida", f"{df_filtrado['Minutos Jogados / Partidas'].mean():.0f}")
-                    kpi6.metric("Minutos Jogados por Partida como Titular", f"{df_filtrado['Minutos / Partidas como Titular'].mean():.0f}")
+                    kpi5.metric("Minutos Jogados por Partida", f"{df_filtrado['Minutos Jogados / Partidas'].mean():.1f}")
+                    kpi6.metric("Minutos Jogados por Partida (Titular)", f"{df_filtrado['Minutos / Partidas como Titular'].mean():.1f}")
 
                 st.divider()
 
@@ -172,7 +172,7 @@ with tab_individuais:
                 with kpi_main3: # Ofensivo
                     st.markdown("<h5 style='text-align: left;'>Ofensivo</h5>", unsafe_allow_html=True)
                     st.metric("Gols / Gols Esperados", f"{df_filtrado['Gols'].sum()} / {df_filtrado['Gols Esperados'].sum():.1f}")
-                    st.metric("Participações em Gols / 90", f"{df_filtrado['Gols+Assistências / 90'].mean():.2f}")
+                    st.metric("Participações em Gols por 90 min", f"{df_filtrado['Gols+Assistências / 90'].mean():.2f}")
                     total_gols = df_filtrado['Gols'].sum()
                     total_finalizacoes = df_filtrado['Finalizações'].sum()
                     gols_por_finalizacao = (total_gols / total_finalizacoes) if total_finalizacoes > 0 else 0
@@ -197,7 +197,7 @@ with tab_individuais:
                     )
                     impacto_saldo_gols = df_filtrado['Saldo de Gols por 90 Minutos com o Jogador em Campo - Saldo de Gols por 90 Minutos sem o Jogador em Campo'].mean()
                     st.metric(
-                        label="Saldo de Gols com/sem o Jogador (90 Min)",
+                        label="Saldo de Gols com/sem o Jogador (90 min)",
                         value=f"{impacto_saldo_gols:+.2f}",
                         help="Mostra quanto o saldo de gols da equipe muda por 90 minutos quando o jogador está em campo em relação a quando não está."
                     )
@@ -262,10 +262,10 @@ with tab_individuais:
                     ax.patch.set_alpha(0.0)
                     bars_efetuados = sns.barplot(x="Efetuados", y="Tipo", data=df_passes, color="#e4f2da", ax=ax, label="Efetuados")
                     bars_completos = sns.barplot(x="Completos", y="Tipo", data=df_passes, color="#22c912", ax=ax, label="Completos")
-                    ax.set_xlabel("Quantidade de Passes", color='white', fontsize=12, labelpad=10)
+                    ax.set_xlabel("Quantidade de Passes", color='white', fontsize=13, labelpad=10)
                     ax.set_ylabel("")
-                    ax.tick_params(axis='x', colors='white', labelsize=8)
-                    ax.tick_params(axis='y', colors='white', labelsize=9)
+                    ax.tick_params(axis='x', colors='white', labelsize=9)
+                    ax.tick_params(axis='y', colors='white', labelsize=10)
                     ax.legend(loc="upper right", frameon=False, labelcolor="white")
                     sns.despine(left=True, bottom=True)
                     st.pyplot(fig)
@@ -430,7 +430,7 @@ with tab_individuais:
                     metricas_participacao = [
                         ("Partidas", 'partidas', 'max', False, 'Partidas'),
                         ("Partidas como Titular", 'titular', 'max', False, 'Partidas como Titular'),
-                        ("Partidas como Reserva", 'reserva', 'max', False, 'Partidas como Substituto'),
+                        ("Partidas como Substituto", 'reserva', 'neutro', False, 'Partidas como Substituto'),
                         ("Minutos Jogados", 'minutos', 'max', False, 'Minutos Jogados'),
                         ("Minutos Jogados por Partida", 'min_partida', 'max', False, 'Minutos Jogados / Partidas'),
                         ("Minutos Jogados por Partida (Titular)", 'min_partida_titular', 'max', False, 'Minutos / Partidas como Titular'),
@@ -447,9 +447,9 @@ with tab_individuais:
                                 valor = df_comparacao_final.loc[jogador, col_name]
                                 
                                 if col_name in METRICAS_PARA_MEDIA:
-                                    formato = f"{valor:.1f}%" if eh_porcentagem else f"{valor:.2f}"
+                                    formato = f"{valor:.1f}%" if eh_porcentagem else f"{valor:.1f}"
                                 else:
-                                    formato = f"{int(valor)}"
+                                    formato = f"{valor:.0f}" if float(valor).is_integer() else f"{valor:.1f}"
                                 
                                 delta, cor = calcular_diferenca_percentual(valor, melhores_participacao[chave], tipo, partidas_jogador)
                                 st.metric(f"**{label}**", formato, delta=delta, delta_color=cor)
@@ -488,7 +488,7 @@ with tab_individuais:
                                 if col_name in METRICAS_PARA_MEDIA or chave == 'participacao_gols':
                                     formato = f"{valor:.1f}%" if eh_porcentagem else f"{valor:.2f}"
                                 else: 
-                                    formato = f"{int(valor)}"
+                                    formato = f"{valor:.0f}" if float(valor).is_integer() else f"{valor:.1f}"
 
                                 delta, cor = calcular_diferenca_percentual(valor, melhores_impacto[chave], tipo, partidas_jogador)
                                 st.metric(f"**{label}**", formato, delta=delta, delta_color=cor)
@@ -534,7 +534,7 @@ with tab_individuais:
                                 if col_name in METRICAS_PARA_MEDIA:
                                     formato = f"{valor:.1f}%" if eh_porcentagem else f"{valor:.2f}"
                                 else:
-                                    formato = f"{int(valor)}"
+                                    formato = f"{valor:.0f}" if float(valor).is_integer() else f"{valor:.1f}"
                                 
                                 delta, cor = calcular_diferenca_percentual(valor, melhores_defensivo.get(chave, valor), tipo, partidas_jogador)
                                 st.metric(f"**{label}**", formato, delta=delta, delta_color=cor)
@@ -582,7 +582,7 @@ with tab_individuais:
                                 if col_name in METRICAS_PARA_MEDIA:
                                     formato = f"{valor:.1f}%" if eh_porcentagem else f"{valor:.2f}"
                                 else:
-                                    formato = f"{int(valor)}"
+                                    formato = f"{valor:.0f}" if float(valor).is_integer() else f"{valor:.1f}"
                                 
                                 delta, cor = calcular_diferenca_percentual(valor, melhores_criacao.get(chave, valor), tipo, partidas_jogador)
                                 st.metric(f"**{label}**", formato, delta=delta, delta_color=cor)
@@ -629,7 +629,7 @@ with tab_individuais:
                                 if col_name in METRICAS_PARA_MEDIA or chave == 'gols_por_finalizacao':
                                     formato = f"{valor:.1f}%" if eh_porcentagem else f"{valor:.2f}"
                                 else:
-                                    formato = f"{int(valor)}"
+                                    formato = f"{valor:.0f}" if float(valor).is_integer() else f"{valor:.1f}"
                                 
                                 delta, cor = calcular_diferenca_percentual(valor, melhores_ofensivo.get(chave, valor), tipo, partidas_jogador)
                                 st.metric(f"**{label}**", formato, delta=delta, delta_color=cor)
@@ -698,6 +698,9 @@ with tab_individuais:
                             fig_radar.update_layout(
                                 polar=dict(radialaxis=dict(visible=True, range=[0, 1])),
                                 showlegend=True, template="plotly_dark",
+                                height=700,
+                                legend=dict(orientation="h", yanchor="bottom", y=1.02,
+                                            xanchor="center", x=0.5, font=dict(size=16)),
                                 # title="Comparação de Perfil de Jogo (Métricas Normalizadas)"
                             )
                             st.plotly_chart(fig_radar, width='stretch')
@@ -1024,7 +1027,7 @@ with tab_individuais:
                         metricas_participacao = [
                             ("Partidas", 'partidas', 'max', False, 'Partidas'),
                             ("Partidas como Titular", 'titular', 'max', False, 'Partidas como Titular'),
-                            ("Partidas como Reserva", 'reserva', 'max', False, 'Partidas como Substituto'),
+                            ("Partidas como Substituto", 'reserva', 'neutro', False, 'Partidas como Substituto'),
                             ("Minutos Jogados", 'minutos', 'max', False, 'Minutos Jogados'),
                             ("Minutos Jogados por Partida", 'min_partida', 'max', False, 'Minutos Jogados / Partidas'),
                             ("Minutos Jogados por Partida (Titular)", 'min_partida_titular', 'max', False, 'Minutos / Partidas como Titular'),
@@ -1041,9 +1044,9 @@ with tab_individuais:
                                     valor = df_comparacao_final.loc[jogador, col_name]
                                     
                                     if col_name in METRICAS_PARA_MEDIA:
-                                        formato = f"{valor:.1f}%" if eh_porcentagem else f"{valor:.2f}"
+                                        formato = f"{valor:.1f}%" if eh_porcentagem else f"{valor:.1f}"
                                     else:
-                                        formato = f"{int(valor)}"
+                                        formato = f"{valor:.0f}" if float(valor).is_integer() else f"{valor:.1f}"
                                     
                                     delta, cor = calcular_diferenca_percentual(valor, melhores_participacao[chave], tipo, partidas_jogador)
                                     st.metric(f"**{label}**", formato, delta=delta, delta_color=cor)
@@ -1082,7 +1085,7 @@ with tab_individuais:
                                     if col_name in METRICAS_PARA_MEDIA or chave == 'participacao_gols':
                                         formato = f"{valor:.1f}%" if eh_porcentagem else f"{valor:.2f}"
                                     else:
-                                        formato = f"{int(valor)}"
+                                        formato = f"{valor:.0f}" if float(valor).is_integer() else f"{valor:.1f}"
 
                                     delta, cor = calcular_diferenca_percentual(valor, melhores_impacto[chave], tipo, partidas_jogador)
                                     st.metric(f"**{label}**", formato, delta=delta, delta_color=cor)
@@ -1128,7 +1131,7 @@ with tab_individuais:
                                     if col_name in METRICAS_PARA_MEDIA:
                                         formato = f"{valor:.1f}%" if eh_porcentagem else f"{valor:.2f}"
                                     else:
-                                        formato = f"{int(valor)}"
+                                        formato = f"{valor:.0f}" if float(valor).is_integer() else f"{valor:.1f}"
                                     
                                     delta, cor = calcular_diferenca_percentual(valor, melhores_defensivo.get(chave, valor), tipo, partidas_jogador)
                                     st.metric(f"**{label}**", formato, delta=delta, delta_color=cor)
@@ -1176,7 +1179,7 @@ with tab_individuais:
                                     if col_name in METRICAS_PARA_MEDIA:
                                         formato = f"{valor:.1f}%" if eh_porcentagem else f"{valor:.2f}"
                                     else:
-                                        formato = f"{int(valor)}"
+                                        formato = f"{valor:.0f}" if float(valor).is_integer() else f"{valor:.1f}"
                                     
                                     delta, cor = calcular_diferenca_percentual(valor, melhores_criacao.get(chave, valor), tipo, partidas_jogador)
                                     st.metric(f"**{label}**", formato, delta=delta, delta_color=cor)
@@ -1223,7 +1226,7 @@ with tab_individuais:
                                     if col_name in METRICAS_PARA_MEDIA or chave == 'gols_por_finalizacao':
                                         formato = f"{valor:.1f}%" if eh_porcentagem else f"{valor:.2f}"
                                     else:
-                                        formato = f"{int(valor)}"
+                                        formato = f"{valor:.0f}" if float(valor).is_integer() else f"{valor:.1f}"
                                     
                                     delta, cor = calcular_diferenca_percentual(valor, melhores_ofensivo.get(chave, valor), tipo, partidas_jogador)
                                     st.metric(f"**{label}**", formato, delta=delta, delta_color=cor)
@@ -1292,6 +1295,9 @@ with tab_individuais:
                                 fig_radar.update_layout(
                                     polar=dict(radialaxis=dict(visible=True, range=[0, 1])),
                                     showlegend=True, template="plotly_dark",
+                                    height=700,
+                                    legend=dict(orientation="h", yanchor="bottom", y=1.02,
+                                                xanchor="center", x=0.5, font=dict(size=16)),
                                     # title="Comparação de Perfil de Jogo (Métricas Normalizadas 0-1)"
                                 )
                                 st.plotly_chart(fig_radar, width='stretch')
@@ -1544,6 +1550,13 @@ with tab_individuais:
                             key="temporal_normalizar_global"
                         )
 
+                        metricas_taxa = [m for m in metricas_selecionadas if m in METRICAS_PARA_MEDIA]
+                        if normalizar_por_partidas and metricas_taxa:
+                            st.warning(
+                                "A normalização por partidas não se aplica a métricas que já são taxas: "
+                                + ", ".join(metricas_taxa)
+                            )
+
                         # st.markdown("---")
 
                         if metricas_selecionadas:
@@ -1602,7 +1615,11 @@ with tab_individuais:
                                 )
                                 # -----------------------------
                                 
-                                fig.update_layout(yaxis_title=ylabel, xaxis_title="Temporada")
+                                fig.update_layout(
+                                    xaxis=dict(title=dict(text="Temporada", font=dict(size=18)), tickfont=dict(size=18)),
+                                    yaxis=dict(title=dict(text=ylabel, font=dict(size=18)), tickfont=dict(size=18)),
+                                    legend=dict(title=dict(font=dict(size=18)), font=dict(size=18))
+                                )
                                 st.plotly_chart(fig, width='stretch')
 
                             else: # Modo Barras
@@ -1624,7 +1641,11 @@ with tab_individuais:
                                     cliponaxis=False
                                 )
                                 # -----------------------------
-                                fig.update_layout(yaxis_title=ylabel, xaxis_title="Temporada")
+                                fig.update_layout(
+                                    xaxis=dict(title=dict(text="Temporada", font=dict(size=18)), tickfont=dict(size=18)),
+                                    yaxis=dict(title=dict(text=ylabel, font=dict(size=18)), tickfont=dict(size=18)),
+                                    legend=dict(title=dict(font=dict(size=18)), font=dict(size=18))
+                                )
                                 st.plotly_chart(fig, width='stretch')
                         
                         else:
@@ -1717,17 +1738,24 @@ with tab_individuais:
                 else:
                     top_n = 10
                     df_top_10 = df_rank.head(top_n).copy()
+
+                    valores = df_rank[metrica_ranking]
+                    casas_rank = 0 if (valores % 1 == 0).all() else 2
+                    formato_rank = f"%.{casas_rank}f"                    
                     
                     jogador_row = df_rank[df_rank['Jogador'] == jogador_selecionado]
-                    
+
+                    st.subheader(f"Top {top_n} - {metrica_ranking}")
+
                     col_tabela, col_grafico = st.columns([1.5, 2])
                     
                     with col_tabela:
-                        st.subheader(f"Top {top_n} - {metrica_ranking}")
                         st.dataframe(
-                            df_top_10[['Ranking', 'Jogador', metrica_ranking, 'Minutos Jogados']],
+                            df_top_10[['Ranking', 'Jogador', metrica_ranking, 'Minutos Jogados']]
+                            .rename(columns={metrica_ranking: 'Valor'}),
                             hide_index=True,
-                            width='stretch'
+                            width='stretch',
+                            column_config={'Valor': st.column_config.NumberColumn(format=formato_rank)}
                         )
                         
                         if not jogador_row.empty:
@@ -1736,9 +1764,11 @@ with tab_individuais:
                             if posicao_jogador_num > top_n:
                                 st.info(f"ℹ️ **{jogador_selecionado}** ocupa a **{posicao_jogador_num}ª posição** neste ranking.")
                                 st.dataframe(
-                                    jogador_row[['Ranking', 'Jogador', metrica_ranking, 'Minutos Jogados']],
+                                    jogador_row[['Ranking', 'Jogador', metrica_ranking, 'Minutos Jogados']]
+                                    .rename(columns={metrica_ranking: 'Valor'}),
                                     hide_index=True,
-                                    width='stretch'
+                                    width='stretch',
+                                    column_config={'Valor': st.column_config.NumberColumn(format=formato_rank)}
                                 )
                         else:
                             st.warning(f"{jogador_selecionado} não atende aos critérios de minutos ({minutos_minimos} min).")
@@ -1764,18 +1794,21 @@ with tab_individuais:
                             y='Jogador',
                             orientation='h',
                             text=metrica_ranking,
-                            template="plotly_dark"
+                            template="plotly_dark",
+                            labels={metrica_ranking: 'Valor'}
                         )
-                        
-                        # --- PADRONIZAÇÃO APLICADA ---
+
+                        rotulos = df_grafico[metrica_ranking].map(lambda v: f"{v:.{casas_rank}f}")
+
                         fig_rank.update_traces(
-                            marker_color=cores_finais, # Mantém sua lógica de cores
+                            marker_color=cores_finais,
+                            text=rotulos,
                             textposition='outside',
-                            textfont_size=13, # Tamanho padronizado
+                            textfont_size=13,
                             cliponaxis=False
                         )
                         # -----------------------------
-                        fig_rank.update_layout(yaxis=dict(autorange="reversed"))
+                        fig_rank.update_layout(yaxis=dict(autorange="reversed"), margin=dict(r=10))
                         fig_rank.update_yaxes(categoryorder='trace')
                         st.plotly_chart(fig_rank, width='stretch')
             else:
@@ -1955,6 +1988,14 @@ with tab_individuais:
                                     dados_lista.append(dados_sim)
                                 
                                 df_chart = pd.DataFrame(dados_lista, index=indices)
+
+                                metricas_negativas = [c for c in df_chart.columns if (df_chart[c] < 0).any()]
+                                if metricas_negativas:
+                                    st.warning(
+                                        "Valores negativos aparecem no centro do eixo e não afetam a "
+                                        "lista de similaridade acima. Ocorrem em: "
+                                        + ", ".join(metricas_negativas)
+                                    )
                                 
                                 # 3. Normalização (Baseada no máximo entre todos os selecionados)
                                 df_chart_norm = df_chart.copy()
@@ -1987,10 +2028,12 @@ with tab_individuais:
                                     ))
                                 
                                 fig_radar_sim.update_layout(
-                                    polar=dict(radialaxis=dict(visible=True, range=[0, 1.1])),
+                                    polar=dict(radialaxis=dict(visible=True, range=[0, 1])),
                                     showlegend=True,
                                     template="plotly_dark",
-                                    margin=dict(t=40, b=20, l=40, r=40)
+                                    height=700,
+                                    legend=dict(orientation="h", yanchor="bottom", y=1.02,
+                                                xanchor="center", x=0.5, font=dict(size=16))
                                 )
                                 
                                 with col_grafico_radar:
@@ -2075,36 +2118,46 @@ with tab_rankings_globais:
             else:
                 st.subheader(f"Top {top_n} Jogadores - {top_metrica}")
                 df_show = df_top.head(top_n)
-                
+
+                valores = df_show[top_metrica]
+                casas_top = 0 if (valores % 1 == 0).all() else 2
+                formato_top = f"%.{casas_top}f"
+                rotulos = valores.map(lambda v: f"{v:.{casas_top}f}")
+
                 col_data, col_graph = st.columns([1.5, 2])
                 with col_data:
                     st.dataframe(
-                        df_show[['Ranking', 'Jogador', top_metrica, 'Minutos Jogados']],
+                        df_show[['Ranking', 'Jogador', top_metrica, 'Minutos Jogados']]
+                        .rename(columns={top_metrica: 'Valor'}),
                         hide_index=True,
-                        width='stretch'
+                        width='stretch',
+                        column_config={'Valor': st.column_config.NumberColumn(format=formato_top)}
                     )
 
                 with col_graph:
                     fig_top = px.bar(
                         df_show,
                         x=top_metrica, y='Jogador', orientation='h',
-                        text=top_metrica, template="plotly_dark"
+                        text=top_metrica, template="plotly_dark",
+                        labels={top_metrica: 'Valor'}
                     )
-                    # PADRONIZAÇÃO AQUI: Tamanho 13 e cliponaxis=False
+
                     fig_top.update_traces(
-                        marker_color='#e4f2da', 
-                        textposition='outside', 
-                        textfont_size=13, 
+                        marker_color='#e4f2da',
+                        text=rotulos,
+                        textposition='outside',
+                        textfont_size=13,
                         cliponaxis=False
                     )
+
                     # Inverte o eixo Y para que o Rank 1 (primeira linha do DF) fique no topo visualmente
-                    fig_top.update_layout(yaxis=dict(autorange="reversed"))
+                    fig_top.update_layout(yaxis=dict(autorange="reversed"), margin=dict(r=10))
                     st.plotly_chart(fig_top, width='stretch')
         else:
             st.info("Selecione uma métrica acima para gerar o ranking.")
 
     # --------------------------------------------------------------------------
-    # 2. REVELAÇÕES
+    # 2. EVOLUÇÕES
     # --------------------------------------------------------------------------
     with subtab_evolucao:
         st.subheader("Ranking de Jogadores com Maior Evolução")
@@ -2131,7 +2184,12 @@ with tab_rankings_globais:
                 rev_n = st.number_input("**Top:**", 5, 50, 10, key="rev_n")
                 
             with cr3:
-                rev_min_min = st.number_input("**Mínimo de Minutos:**", 0, value=2000, step=50, key="rev_min", help="Mínimo de minutos jogados em AMBAS as temporadas.")
+                rev_min_min = st.number_input(
+                    "**Mínimo de Minutos por Temporada:**",
+                    0, value=2000, step=50, key="rev_min",
+                    help="Exigido separadamente em cada uma das duas temporadas comparadas, e não na soma delas. "
+                        "Minutos de clubes diferentes dentro da mesma temporada são somados."
+                )
 
             # Linha 2: Filtros de Contexto
             cr4, cr5, cr6 = st.columns(3)
@@ -2139,10 +2197,10 @@ with tab_rankings_globais:
             with cr4:
                 opcoes_temporada = all_seasons[1:]
                 rev_temp_selecionada = st.selectbox(
-                    "**Temporadas:**", 
+                    "**Temporada de Referência:**", 
                     opcoes_temporada,
                     index=None,
-                    placeholder="Todas as temporadas",
+                    placeholder="Selecione a temporada",
                     key="rev_season_ref",
                     help="A análise será feita comparando esta temporada com a imediatamente anterior."
                 )
@@ -2186,25 +2244,31 @@ with tab_rankings_globais:
                     st.warning(erro)
                 else:
                     st.subheader(f"Top {rev_n} Maiores Evoluções - {rev_metrica}")
-                    
-                    # Prepara dados do gráfico (respeitando o N escolhido)
-                    df_evolucao_graph = df_evolucao.head(rev_n).sort_values('Melhora', ascending=True)
+
+                    cols_metrica_rev = [f'{rev_metrica}_ant', f'{rev_metrica}_atu', 'Melhora']
+                    casas_rev = 0 if (df_evolucao[cols_metrica_rev] % 1 == 0).all().all() else 2
+                    formato_rev = f"%.{casas_rev}f"
                     
                     # Layout: Tabela (Esq) | Gráfico (Dir)
-                    col_data, col_graph = st.columns([1.5, 2])
+                    col_data, col_graph = st.columns([1.8, 1.6])
                     
                     with col_data:
                         st.dataframe(
                         df_evolucao.reset_index()[['index', 'Jogador', f'{rev_metrica}_ant', f'{rev_metrica}_atu', 'Melhora', "Minutos Jogados_atu"
                         ]].rename(columns={
                             'index': 'Ranking',
-                            f'{rev_metrica}_ant': f'{rev_metrica} ({temporada_passada})',
-                            f'{rev_metrica}_atu': f'{rev_metrica} ({temporada_atual})',
+                            f'{rev_metrica}_ant': temporada_passada,
+                            f'{rev_metrica}_atu': temporada_atual,
                             'Melhora': 'Evolução',
-                            'Minutos Jogados_atu': 'Minutos Jogados'
+                            'Minutos Jogados_atu': f'Minutos Jogados ({temporada_atual})'
                         }),
                         width='stretch',
-                        hide_index=True
+                        hide_index=True,
+                        column_config={
+                            temporada_passada: st.column_config.NumberColumn(format=formato_rev),
+                            temporada_atual: st.column_config.NumberColumn(format=formato_rev),
+                            'Evolução': st.column_config.NumberColumn(format=formato_rev)
+                        }
                     )
 
                     with col_graph:
@@ -2214,20 +2278,21 @@ with tab_rankings_globais:
                             df_evolucao_graph,
                             x='Melhora', y='Jogador', orientation='h',
                             text='Melhora', template="plotly_dark",
-                            # O label abaixo define o título do eixo X. 
-                            # Você pode mudar para 'Evolução' se preferir, ou manter 'Diferença...'
-                            labels={'Melhora': f'Evolução de {rev_metrica}'}
+                            labels={'Melhora': 'Evolução'}
                         )
-                        # PADRONIZAÇÃO APLICADA
+
+                        rotulos = df_evolucao_graph['Melhora'].map(lambda v: f"{v:.{casas_rev}f}")
+
                         fig_rev.update_traces(
                             marker_color='#e4f2da',
+                            text=rotulos,
                             textposition='outside',
-                            textfont_size=13, # Tamanho padronizado
-                            cliponaxis=False # Evita cortar o texto
+                            textfont_size=13,
+                            cliponaxis=False
                         )
 
                         # Inverte o eixo Y para o primeiro do DF (Rank 1) ficar no topo
-                        fig_rev.update_layout(yaxis=dict(autorange="reversed"))
+                        fig_rev.update_layout(yaxis=dict(autorange="reversed"), margin=dict(r=10))
                         st.plotly_chart(fig_rev, width='stretch')
 
             else:
@@ -2259,7 +2324,7 @@ with tab_rankings_globais:
             cons_n = st.number_input("**Top:**", 5, 50, 10, key="cons_n")
             
         with cc3:
-            cons_min_min = st.number_input("**Mínimo de Minutos:**", 0, value=8000, step=50, key="cons_min_min", help="Mínimo de minutos jogados por temporada para ela ser contabilizada.")
+            cons_min_min = st.number_input("**Mínimo de Minutos (período):**", 0, value=8000, step=50, key="cons_min_min", help="Total de minutos somados em todo o período para o jogador entrar na análise.")
 
         # Linha 2: Configuração do Período (Lógica de Validação) e Filtros Extras
         cc4, cc5, cc6, cc7 = st.columns([1.2, 1.2, 1.3, 1.3])
@@ -2272,7 +2337,7 @@ with tab_rankings_globais:
                 min_value=3,
                 max_value=total_seasons,
                 value=3,
-                help="Quantas temporadas consecutivas o jogador precisa ter jogado para ser analisado.",
+                help="Em quantas temporadas do período o jogador precisa ter registro para ser analisado.",
                 key="cons_seq_len"
             )
 
@@ -2329,7 +2394,7 @@ with tab_rankings_globais:
             temporadas_periodo = all_seasons[start_idx:]
             
             st.caption(f"Analisando período: **{temporadas_periodo[0]}** até **{temporadas_periodo[-1]}**.")
-            st.caption("Gráfico: Quanto mais à direita = Jogadores mais consistentes. Quanto mais ao topo = Jogadores com melhor média de performance.")
+            st.caption("No gráfico, quanto mais à direita, maior a consistência; quanto mais ao topo, maior a média de desempenho.")
 
             df_cons, erro = analisador.calcular_consistencia(
                 metrica=cons_metrica,
@@ -2351,33 +2416,58 @@ with tab_rankings_globais:
                 
                 with col_data:
                     st.dataframe(
-                        df_cons.reset_index()[['index', 'Jogador', 'media_performance', 'CV', 'total_minutos']]
+                        df_cons.reset_index()[['index', 'Jogador', 'CV', 'media_performance', 'total_minutos']]
                         .rename(columns={
                             'index': 'Ranking',
-                            'media_performance': f'Média de {cons_metrica}', 
-                            'total_minutos': 'Minutos Jogados',
-                            'CV': 'Coeficiente de Variação (CV)'
+                            'media_performance': 'Média',
+                            'total_minutos': 'Minutos Jogados'
                         }),
                         hide_index=True,
-                        width='stretch'
+                        width='stretch',
+                        column_config={
+                            "Jogador": st.column_config.TextColumn(width="medium"),
+                            "CV": st.column_config.NumberColumn(format="%.3f"),
+                            "Média": st.column_config.NumberColumn(format="%.2f")
+                        }
                     )
                 
                 with col_graph:
                     fig_cons = px.scatter(
                         df_cons,
                         x='CV', y='media_performance',
-                        text='Jogador', size='num_temporadas',
-                        labels={'media_performance': f'Média {cons_metrica}'},
-                        template="plotly_dark", color='CV',
-                        color_continuous_scale=['#e4f2da', '#22c912']
+                        text='Jogador',
+                        labels={'media_performance': 'Média',
+                                'CV': 'Coeficiente de Variação (CV)'},
+                        template="plotly_dark"
                     )
-                    # PADRONIZAÇÃO APLICADA
+
+                    # Desloca o rótulo de pontos coincidentes para evitar sobreposição
+                    posicoes = []
+                    vistos = set()
+                    for cv, mp in zip(df_cons['CV'], df_cons['media_performance']):
+                        chave = (round(cv, 6), round(mp, 6))
+                        posicoes.append('bottom center' if chave in vistos else 'top center')
+                        vistos.add(chave)
+
                     fig_cons.update_traces(
-                        textposition='top center',
-                        textfont_size=13, # Tamanho padronizado
-                        cliponaxis=False  # Evita cortar o texto
+                        marker_color='#e4f2da',
+                        textposition=posicoes,
+                        textfont_size=13,
+                        cliponaxis=False
                     )
-                    fig_cons.update_layout(xaxis=dict(autorange="reversed"))
+
+                    cv_min, cv_max = df_cons['CV'].min(), df_cons['CV'].max()
+                    folga_x = (cv_max - cv_min) * 0.18 or 0.05
+
+                    y_min = df_cons['media_performance'].min()
+                    y_max = df_cons['media_performance'].max()
+                    folga_y = (y_max - y_min) * 0.15 or 0.05
+
+                    fig_cons.update_layout(
+                        xaxis=dict(range=[cv_max + folga_x, cv_min - folga_x]),
+                        yaxis=dict(range=[y_min - folga_y, y_max + folga_y]),
+                        margin=dict(r=10)
+                    )
                     st.plotly_chart(fig_cons, width='stretch')
         else:
             st.info("Selecione uma métrica e a temporada de início para analisar a consistência.")
@@ -2386,15 +2476,15 @@ with tab_rankings_globais:
     # 4. CURVA DE IDADE
     # --------------------------------------------------------------------------
     with subtab_idade:
-        st.subheader("Ranking de Curva de Performance por Idade")
-        st.markdown("Analisa em qual idade os jogadores costumam atingir o auge para uma determinada métrica.")
+        st.subheader("Curva de Performance por Idade")
+        st.markdown("Apresenta a média da métrica selecionada em cada idade dos jogadores da base.")
         
         # Linha 1: Configurações Numéricas (Métrica, Min. Jogadores, Min. Minutos)
         ci1, ci2, ci3 = st.columns([2, 1, 1])
         
         with ci1:
             idade_metrica = st.selectbox(
-                "**Selecione a Métrica para o Ranking:**", 
+                "**Selecione a Métrica:**",
                 options=sorted(METRICAS_PARA_MEDIA + METRICAS_PARA_SOMAR), 
                 index=None,
                 placeholder="Selecione uma métrica",
@@ -2414,12 +2504,12 @@ with tab_rankings_globais:
         with ci3:
             # Novo filtro de Minutos
             idade_min_minutos = st.number_input(
-                "**Média Mínima de Minutos:**", 
+                "**Mínimo de Minutos por Temporada:**",
                 min_value=0,
                 value=1000,
                 step=50,
                 key="idade_min_min",
-                help="Ignora registros de jogadores com poucos minutos jogados na temporada."
+                help="O jogador precisa atingir este total de minutos em uma idade para que ele entre no cálculo. Minutos de clubes diferentes na mesma temporada são somados."
             )
 
         # Linha 2: Filtros de Contexto (Temporada, Competição, Posição)
@@ -2480,7 +2570,7 @@ with tab_rankings_globais:
                 with col_data:
                     # Preparar o dataframe para exibição
                     df_display = df_curva.rename(columns={
-                        'performance_media': f'Média de {idade_metrica}',
+                        'performance_media': 'Média',
                         'contagem_jogadores': 'Quantidade de Jogadores',
                         'media_minutos': 'Média de Minutos Jogados' # <--- Nova Coluna
                     })
@@ -2491,7 +2581,9 @@ with tab_rankings_globais:
                     st.dataframe(
                         df_display,
                         width='stretch',
-                        hide_index=True
+                        hide_index=True,
+                        column_config={'Média': st.column_config.NumberColumn(format="%.4f")},
+                        height=(len(df_display) + 1) * 35 + 3
                     )
 
                 with col_graph:
@@ -2504,16 +2596,26 @@ with tab_rankings_globais:
                         color_discrete_sequence=['#e4f2da']
                     )
 
+                    # Marcador com área proporcional à quantidade de jogadores da amostra
+                    proporcao = df_curva['contagem_jogadores'] / df_curva['contagem_jogadores'].max()
+                    tamanhos = 30 * (proporcao ** 0.5)
+
                     fig_idade.update_traces(
-                        cliponaxis=False
+                        cliponaxis=False,
+                        marker=dict(size=tamanhos, line=dict(width=1, color='#070a26'))
+                    )
+
+                    fig_idade.update_layout(
+                        xaxis=dict(title=dict(text="Idade", font=dict(size=18)), tickfont=dict(size=18)),
+                        yaxis=dict(title=dict(text="Média", font=dict(size=18)), tickfont=dict(size=18))
                     )
                     
                     fig_idade.add_annotation(
                         x=idade_auge, y=valor_auge,
-                        text=f"Auge ({int(idade_auge)} anos)",
+                        text=f"Maior média ({int(idade_auge)} anos)",
                         showarrow=True, arrowhead=1,
                         yshift=10,
-                        font=dict(color="#22c912")
+                        font=dict(color="#22c912", size=18)
                     )
                     
                     fig_idade.add_shape(
@@ -2524,6 +2626,8 @@ with tab_rankings_globais:
                     )
                     
                     st.plotly_chart(fig_idade, width='stretch')
+
+                    st.caption("O tamanho de cada ponto é proporcional à quantidade de jogadores que compõem a média daquela idade.")
         else:
             st.info("Selecione uma métrica para visualizar a curva de idade.")
 
@@ -2613,7 +2717,11 @@ with tab_dados:
     else:
         st.subheader("Base de Dados Filtrada")
 
-    st.dataframe(df_filtrado_dados_brutos, hide_index=True)
+    identificacao = ['Jogador', 'Nacionalidade', 'Posição', 'Equipe',
+                    'Competição', 'Temporada', 'Idade', 'Ano de Nascimento']
+    ordem = identificacao + [c for c in df_filtrado_dados_brutos.columns if c not in identificacao]
+
+    st.dataframe(df_filtrado_dados_brutos[ordem], hide_index=True)
 
 
 with tab_chatbot:
